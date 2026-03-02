@@ -1,0 +1,27 @@
+# ================================
+# Proxmox Connection
+# ================================
+
+proxmox_api_url          = "https://192.168.7.12:8006/api2/json"
+proxmox_api_token_id     = "terraform-prov@pve!tf"
+proxmox_api_token_secret = "REPLACE_WITH_YOUR_SECRET"
+
+# ================================
+# Cloud-Init User
+# ================================
+
+ci_user     = "devops"
+ci_password = "ChangeMe123!"
+
+# ================================
+# SSH Key
+# ================================
+
+ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAFAKEKEYREPLACEME devops@macbook"
+
+# ================================
+# Networking
+# ================================
+
+lan_gateway = "192.168.7.1"
+lan_prefix  = 24
