@@ -62,37 +62,3 @@ variable "app_prefix" {
   type    = number
   default = 24
 }
-
-
-
-# variable "proxmox_api_url" {
-#   description = "Proxmox API URL"
-#   type        = string
-# }
-
-# variable "proxmox_api_token_id" {
-#   description = "Proxmox API Token ID"
-#   type        = string
-# }
-
-# variable "proxmox_api_token_secret" {
-#   description = "Proxmox API Token Secret"
-#   type        = string
-#   sensitive   = true
-# }
-
-# variable "ci_user" {
-#   description = "Cloud-init username"
-#   type        = string
-# }
-
-# variable "ci_password" {
-#   description = "Cloud-init password"
-#   type        = string
-#   sensitive   = true
-# }
-
-# variable "ssh_public_key" {
-#   description = "SSH public key"
-#   type        = string
-# }
