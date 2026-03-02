@@ -103,7 +103,7 @@ resource "proxmox_virtual_environment_vm" "vm" {
     cache        = "none"
   }
 
-  boot_order = [ "scsi0" ]
+  boot_order = ["scsi0"]
   # net0 -> vmbr0 (LAN/Internet)
   network_device {
     bridge = var.bridge_lan

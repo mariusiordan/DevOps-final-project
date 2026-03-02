@@ -16,6 +16,6 @@ locals {
 }
 
 resource "local_file" "ansible_inventory" {
-  filename = "${path.module}/../ansible/inventory.ini"
-  content  = join("\n", [trimspace(local.inventory), ""])
+  filename = "${path.module}/ansible/inventory.ini"
+  content  = join("\n", [trimspace(local.inventorcd y), ""])
 }
