@@ -1,0 +1,35 @@
+---
+# ================================
+# site.yml - Configure all VMs
+# Run: ansible-playbook playbooks/site.yml
+# ================================
+
+- name: Common setup on all hosts
+  hosts: all
+  become: yes
+  roles:
+    - common
+
+- name: Configure edge nginx
+  hosts: edge
+  become: yes
+  roles:
+    - nginx
+
+- name: Configure prod app servers
+  hosts: prod
+  become: yes
+  roles:
+    - app
+
+- name: Configure database
+  hosts: db
+  become: yes
+  roles:
+    - postgres
+
+- name: Configure monitoring
+  hosts: monitoring
+  become: yes
+  roles:
+    - monitoring
