@@ -1,0 +1,15 @@
+# group_vars/prod.yml
+# Variables only available to the [prod] group (blue and green VMs)
+# Update app_image with your actual Docker image before deploying
+
+app_image: "nginxdemos/hello"  # replace with your actual image later
+app_tag:   "latest"            # docker image tag (use version tags in production)
+app_dir:   /opt/app            # folder on the VM where app files live
+
+# Database connection - uses internal APP network (vmbr1)
+# These values must match what is in group_vars/db.yml
+db_host:     "10.10.20.20"  # db VM internal IP
+db_port:     5432
+db_name:     "appdb"
+db_user:     "devop_db"
+db_password: "changeme"     # must match postgres_password in db.yml

@@ -1,0 +1,48 @@
+---
+- name: Allow Grafana from LAN only
+  ufw:
+    rule: allow
+    port: "3000"
+    proto: tcp
+    src: "192.168.7.0/24"
+
+- name: Allow Prometheus from LAN only
+  ufw:
+    rule: allow
+    port: "9090"
+    proto: tcp
+    src: "192.168.7.0/24"
+
+- name: Create monitoring directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ docker_user }}"
+    group: "{{ docker_user }}"
+    mode: "0755"
+  loop:
+    - /opt/monitoring
+    - /opt/monitoring/prometheus
+
+- name: Deploy prometheus config
+  template:
+    src: prometheus.yml.j2
+    dest: /opt/monitoring/prometheus/prometheus.yml
+    owner: "{{ docker_user }}"
+    group: "{{ docker_user }}"
+    mode: "0644"
+
+- name: Deploy docker-compose for monitoring
+  template:
+    src: docker-compose.yml.j2
+    dest: /opt/monitoring/docker-compose.yml
+    owner: "{{ docker_user }}"
+    group: "{{ docker_user }}"
+    mode: "0644"
+
+- name: Start monitoring stack
+  community.docker.docker_compose_v2:
+    project_src: /opt/monitoring
+    state: present
+  become: yes
+  become_user: "{{ docker_user }}"

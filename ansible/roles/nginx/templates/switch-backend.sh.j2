@@ -1,0 +1,54 @@
+#!/bin/bash
+# switch-backend.sh.j2
+# Blue/Green deployment switch script
+# This script updates the nginx upstream config to point to blue or green
+#
+# Usage:
+#   sudo /opt/switch-backend.sh blue   - send traffic to BLUE
+#   sudo /opt/switch-backend.sh green  - send traffic to GREEN
+#   sudo /opt/switch-backend.sh        - auto-switch to the other one
+
+NGINX_CONF="/etc/nginx/conf.d/upstream.conf"
+BLUE_IP="{{ blue_app_ip }}"
+GREEN_IP="{{ green_app_ip }}"
+PORT="{{ app_port }}"
+
+TARGET=${1:-""}
+
+# If no argument given - detect current and switch to the other one
+if [ -z "$TARGET" ]; then
+    CURRENT=$(grep -v "^#" $NGINX_CONF | grep "server " | awk '{print $2}' | cut -d: -f1)
+    if [ "$CURRENT" = "$BLUE_IP" ]; then
+        TARGET="green"
+    else
+        TARGET="blue"
+    fi
+fi
+
+if [ "$TARGET" = "blue" ]; then
+    # Write new upstream config pointing to BLUE
+    cat > $NGINX_CONF <<EOF
+upstream app_backend {
+    server ${BLUE_IP}:${PORT};      # BLUE  - active
+    # server ${GREEN_IP}:${PORT};   # GREEN - inactive
+}
+EOF
+    echo "Switched to BLUE (${BLUE_IP})"
+
+elif [ "$TARGET" = "green" ]; then
+    # Write new upstream config pointing to GREEN
+    cat > $NGINX_CONF <<EOF
+upstream app_backend {
+    # server ${BLUE_IP}:${PORT};    # BLUE  - inactive
+    server ${GREEN_IP}:${PORT};     # GREEN - active
+}
+EOF
+    echo "Switched to GREEN (${GREEN_IP})"
+
+else
+    echo "Usage: $0 [blue|green]"
+    exit 1
+fi
+
+# Test nginx config before reloading - safety check
+nginx -t && systemctl reload nginx

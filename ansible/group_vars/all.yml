@@ -1,0 +1,14 @@
+# group_vars/all.yml
+# Variables available to ALL hosts in the inventory
+# These are the internal APP network IPs (vmbr1 - 10.10.20.0/24)
+
+app_name: myapp
+app_port: 3000      # port the Node.js app listens on
+
+# Internal APP network IPs (vmbr1)
+# These are used for communication between VMs (app -> db, nginx -> app)
+blue_app_ip:  "10.10.20.11"   # prod-vm1-BLUE
+green_app_ip: "10.10.20.12"   # prod-vm2-GREEN
+db_app_ip:    "10.10.20.20"   # db-postgresql
+
+docker_user: devop  # user that runs docker commands

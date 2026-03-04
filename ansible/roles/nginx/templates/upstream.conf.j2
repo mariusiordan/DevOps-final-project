@@ -1,0 +1,9 @@
+# upstream.conf.j2
+# This file tells nginx where to send incoming traffic
+# Only ONE server should be active at a time (blue/green deployment)
+# To switch traffic: run /opt/switch-backend.sh green (or blue)
+
+upstream app_backend {
+    server {{ blue_app_ip }}:{{ app_port }};      # BLUE  - active
+    # server {{ green_app_ip }}:{{ app_port }};   # GREEN - inactive (commented out)
+}

@@ -1,0 +1,21 @@
+# app/templates/docker-compose.yml.j2
+# Docker Compose file for the Node.js + React application
+
+services:
+  app:
+    image: {{ app_image }}:{{ app_tag }}  # image and tag come from group_vars/prod.yml
+    container_name: app
+    restart: unless-stopped  # restart automatically on crash or VM reboot
+
+    env_file: .env  # load environment variables from .env file
+
+    ports:
+      - "{{ app_port }}:{{ app_port }}"  # expose app port to the VM
+
+    healthcheck:
+      # Check if the app is responding on the health endpoint
+      test: ["CMD", "curl", "-f", "http://localhost:{{ app_port }}/health"]
+      interval: 30s       # check every 30 seconds
+      timeout: 10s        # wait max 10 seconds
+      retries: 3          # mark as unhealthy after 3 failures
+      start_period: 40s   # give the app 40 seconds to start up before checking

@@ -1,0 +1,40 @@
+---
+# common/tasks/main.yml
+# This role runs on ALL VMs - basic setup every server needs
+
+# Update the package list so we can install latest versions
+- name: Update apt cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600  # only update if cache is older than 1 hour
+
+# Install basic tools we need on every server
+- name: Install common packages
+  apt:
+    name:
+      - curl        # making HTTP requests
+      - wget        # downloading files
+      - git         # version control
+      - htop        # monitoring CPU/memory
+      - net-tools   # network tools like netstat
+      - ufw         # firewall
+    state: present  # make sure they are installed
+
+# Firewall rule - always allow SSH so we don't lock ourselves out
+- name: Allow SSH through firewall
+  ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+
+# Enable firewall - deny everything by default, only allow what we specify
+- name: Enable UFW firewall
+  ufw:
+    state: enabled
+    policy: deny
+    direction: incoming
+
+# Set timezone to UTC - good practice for servers and logs
+- name: Set timezone to UTC
+  timezone:
+    name: UTC

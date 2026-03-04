@@ -1,0 +1,10 @@
+---
+# nginx/handlers/main.yml
+# Handlers only run when a task sends a "notify" signal
+# This means nginx only reloads when a config file actually changes
+# If nothing changed - nginx is not reloaded (more efficient)
+
+- name: reload nginx
+  systemd:
+    name: nginx
+    state: reloaded
