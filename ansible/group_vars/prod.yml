@@ -2,9 +2,10 @@
 # Variables only available to the [prod] group (blue and green VMs)
 # Update app_image with your actual Docker image before deploying
 
-app_image: "nginxdemos/hello"  # replace with your actual image later
-app_tag:   "latest"            # docker image tag (use version tags in production)
-app_dir:   /opt/app            # folder on the VM where app files live
+app_image: "ghcr.io/mariusiordan/silverbank"  # ← real Docker image name
+app_tag:   "v1.2"                              # ← version tag for the Docker image, e.g., "v1.0" or "latest"
+app_dir:   /opt/app
+app_port:  3000                                # 
 
 # Database connection - uses internal APP network (vmbr1)
 # These values must match what is in group_vars/db.yml
