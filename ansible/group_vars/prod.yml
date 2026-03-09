@@ -11,5 +11,5 @@ app_dir:   /opt/app            # folder on the VM where app files live
 db_host:     "10.10.20.20"  # db VM internal IP
 db_port:     5432
 db_name:     "appdb"
-db_user:     "devop_db"
-db_password: "changeme"     # must match postgres_password in db.yml
+db_user:     "{{ vault_db_user }}"
+db_password: "{{ vault_db_password }}"     # must match postgres_password in db.yml

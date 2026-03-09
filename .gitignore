@@ -35,7 +35,8 @@ ansible/*.retry
 # Ansible Vault encrypted files
 ansible/group_vars/*/vault.yml
 vault-password.txt
-
+~/.vault-password    # nu e în proiect deci nu contează
+ansible/group_vars/vault.yml   # ← NU adaugi asta - vault.yml MERGE în git criptat
 # =============================
 # SSH / Secrets
 # =============================
