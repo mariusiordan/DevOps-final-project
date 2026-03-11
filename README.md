@@ -1,198 +1,334 @@
-# DevOps Final Project - Proxmox + Terraform + Ansible
+# SilverBank DevOps Infrastructure
 
-This is my final DevOps project where I set up a full infrastructure on a Proxmox home server.
-The idea is to have a proper blue/green deployment setup with Nginx as a reverse proxy,
-PostgreSQL as the database, and a monitoring stack - all provisioned with Terraform and configured with Ansible.
+> Full CI/CD ecosystem for a 3-tier banking application — provisioned with Terraform, configured with Ansible, containerized with Docker, and deployed via GitHub Actions with Blue/Green strategy on a Proxmox homelab.
 
 ---
 
-## What I Built
+## Table of Contents
+
+- [Architecture Overview](#architecture-overview)
+- [Tech Stack](#tech-stack)
+- [Infrastructure (Terraform)](#infrastructure-terraform)
+- [Configuration (Ansible)](#configuration-ansible)
+- [Application (Docker)](#application-docker)
+- [CI/CD Pipelines (GitHub Actions)](#cicd-pipelines-github-actions)
+- [Blue/Green Deployment](#bluegreen-deployment)
+- [Secrets Management](#secrets-management)
+- [Getting Started](#getting-started)
+- [Status](#status)
+
+---
+
+## Architecture Overview
 
 ```
-Proxmox Home Server
-├── vm-edge-nginx       192.168.7.50    → reverse proxy, blue/green traffic switch
-├── vm-prod-BLUE        192.168.7.101   → production app (Node.js + React in Docker)
-├── vm-prod-GREEN       192.168.7.102   → production app (Node.js + React in Docker)
-├── vm-db-postgresql    192.168.7.60    → PostgreSQL in Docker
-└── vm-monitoring       192.168.7.70    → Prometheus + Grafana + Loki (coming soon)
+                          ┌─────────────────────────────────────────────┐
+                          │           Proxmox Home Server               │
+                          │                                             │
+  Internet / LAN          │  ┌──────────────────────────────────────┐   │
+  192.168.7.x  ───────────┼─▶│  vm-edge-nginx   192.168.7.50        │   │
+                          │  │  Nginx reverse proxy + Blue/Green     │   │
+                          │  └──────────┬───────────────┬────────────┘   │
+                          │             │               │               │
+                          │   ┌─────────▼────┐  ┌──────▼──────┐        │
+                          │   │ vm-prod-BLUE │  │ vm-prod-GREEN│        │
+                          │   │ 192.168.7.101│  │ 192.168.7.102│        │
+                          │   │ SilverBank   │  │ SilverBank   │        │
+                          │   │ (Active) ✅  │  │ (Idle)  💤   │        │
+                          │   └──────┬───────┘  └──────┬───────┘        │
+                          │          │                  │               │
+                          │          └────────┬─────────┘               │
+   APP Network            │                   │                         │
+   10.10.20.x  ───────────┼───────────────────┼─────────────────────    │
+                          │          ┌─────────▼────────┐               │
+                          │          │  vm-db-postgresql │               │
+                          │          │  192.168.7.60     │               │
+                          │          │  PostgreSQL 16    │               │
+                          │          └──────────────────┘               │
+                          │                                             │
+                          │  ┌──────────────────────────────────────┐   │
+                          │  │  vm-monitoring   192.168.7.70        │   │
+                          │  │  Prometheus + Grafana (coming soon)  │   │
+                          │  └──────────────────────────────────────┘   │
+                          └─────────────────────────────────────────────┘
 ```
 
-Each VM has two network interfaces:
-- `vmbr0` (LAN) → external access, SSH, management
-- `vmbr1` (APP network 10.10.20.0/24) → internal communication between app and DB
+### Network Design
+
+Each VM has **two network interfaces** for security isolation:
+
+| Interface | Network | Purpose |
+|---|---|---|
+| `vmbr0` | `192.168.7.0/24` (LAN) | External access, SSH, management |
+| `vmbr1` | `10.10.20.0/24` (APP) | Internal app ↔ DB communication only |
+
+The database is **not reachable from the LAN** — only from the APP network.
 
 ---
 
 ## Tech Stack
 
-- **Proxmox** - hypervisor running on home server
-- **Terraform** (bpg/proxmox provider) - provisions all VMs
-- **Ansible** - configures VMs after provisioning
-- **Docker + docker-compose** - runs all services inside VMs
-- **Nginx** - reverse proxy with blue/green switching script
-- **PostgreSQL 16** - database running in Docker
-- **Prometheus + Grafana + Loki** - monitoring and logging (coming soon)
+| Layer | Technology | Purpose |
+|---|---|---|
+| Hypervisor | Proxmox VE | Host for all VMs |
+| Provisioning | Terraform + bpg/proxmox | Create and manage VMs |
+| Configuration | Ansible + Ansible Vault | Configure VMs and deploy secrets |
+| Containerization | Docker + docker-compose | Run all services in containers |
+| Registry | GitHub Container Registry (ghcr.io) | Store and version Docker images |
+| Reverse Proxy | Nginx | Route traffic, Blue/Green switching |
+| Database | PostgreSQL 16 | Application database |
+| App | Next.js 16 + Prisma | SilverBank application |
+| CI/CD | GitHub Actions | Automated testing and deployment |
+| Monitoring | Prometheus + Grafana | Metrics and dashboards *(coming soon)* |
 
 ---
 
-## Step 1 - Preparing the Template VM
+## Infrastructure (Terraform)
 
-I started by creating a clean Ubuntu 24.04 VM in Proxmox (VMID 10000),
-installing everything needed, cleaning it up, and converting it to a template.
+Terraform provisions all 5 VMs from a single Ubuntu 24.04 template using `for_each`.
+After apply, it automatically generates `ansible/inventory.ini`.
 
-### Clone existing template and start VM
+### VM Layout
+
+| VM | VMID | LAN IP | APP IP | Specs | Role |
+|---|---|---|---|---|---|
+| `edge-nginx` | 850 | 192.168.7.50 | 10.10.20.10 | 2 vCPU / 2GB | Reverse proxy |
+| `prod-vm1-BLUE` | 810 | 192.168.7.101 | 10.10.20.11 | 2 vCPU / 4GB | Production (Blue) |
+| `prod-vm2-GREEN` | 811 | 192.168.7.102 | 10.10.20.12 | 2 vCPU / 4GB | Production (Green) |
+| `db-postgresql` | 860 | 192.168.7.60 | 10.10.20.20 | 2 vCPU / 4GB | Database |
+| `monitoring-staging` | 800 | 192.168.7.70 | 10.10.20.30 | 2 vCPU / 4GB | Monitoring / Staging |
+
+### Project Structure
+
+```
+terraform/
+├── main.tf                   # VM resources (for_each on locals.vms)
+├── variables.tf              # variable declarations
+├── outputs.tf                # outputs
+├── ansible.tf                # generates ansible/inventory.ini automatically
+├── terraform.tfvars          # actual values — NOT in git
+└── terraform.tfvars.example  # example values — committed to git
+```
+
+### Quick Start
+
+```bash
+cd terraform
+terraform init
+terraform validate
+terraform fmt
+terraform plan
+terraform apply -parallelism=3
+or
+terraform destroy -parallelism=3
+```
+
+### Preparing the Base Template
+
+Before running Terraform, create a clean Ubuntu 24.04 template (VMID 10000) in Proxmox:
 
 ```bash
 # On Proxmox shell
-qm clone 9999 10000 --name ubuntu-clean --full 1
+qm clone 9999 10000 --name ubuntu-template --full 1
 qm start 10000
-```
 
-### SSH into the VM and install packages
-
-```bash
-ssh devop@<vm-ip>
-
-# Update system
+# SSH into VM and install packages
 sudo apt update && sudo apt upgrade -y
-
-# Install base packages
-sudo apt install -y \
-    qemu-guest-agent \
-    cloud-init \
-    curl wget git \
-    ca-certificates gnupg \
-    lsb-release \
-    net-tools htop \
-    python3 python3-pip
-
-# Enable qemu-guest-agent (needed for Proxmox + Terraform)
-sudo systemctl enable qemu-guest-agent
-sudo systemctl start qemu-guest-agent
-```
-
-### Install Docker
-
-```bash
-# Add Docker GPG key
-sudo install -m 0755 -d /usr/share/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
-    sudo gpg --dearmor -o /usr/share/keyrings/docker.gpg
-sudo chmod a+r /usr/share/keyrings/docker.gpg
-
-# Add Docker repository
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker.gpg] \
-  https://download.docker.com/linux/ubuntu \
-  $(lsb_release -cs) stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt install -y qemu-guest-agent cloud-init curl wget git python3
 
 # Install Docker
-sudo apt update
-sudo apt install -y \
-    docker-ce \
-    docker-ce-cli \
-    containerd.io \
-    docker-buildx-plugin \
-    docker-compose-plugin
-
-# Enable Docker
-sudo systemctl enable docker
-sudo systemctl start docker
-```
-
-### Create devop user and add to docker group
-
-```bash
-sudo adduser devop --gecos "" --disabled-password
-sudo passwd devop
-
-# Add to docker group only (no sudo - not needed)
+curl -fsSL https://get.docker.com | sudo sh
 sudo usermod -aG docker devop
 
-# Verify
-id devop
-# should show: groups=...,docker
-```
-
-### Cleanup before making template
-
-```bash
-# Remove SSH keys (Terraform will inject them via cloud-init)
-sudo rm -f /home/devop/.ssh/authorized_keys
-
-# Clear bash history
-history -c
-sudo truncate -s 0 /root/.bash_history
-truncate -s 0 /home/devop/.bash_history
-
-# Clear logs
-sudo truncate -s 0 /var/log/syslog
-sudo truncate -s 0 /var/log/auth.log
-sudo truncate -s 0 /var/log/cloud-init.log
-sudo truncate -s 0 /var/log/cloud-init-output.log
-sudo find /var/log -type f -name "*.log" -exec sudo truncate -s 0 {} \;
-
-# Reset machine-id (very important - without this all cloned VMs
-# will have the same ID and cause network conflicts)
-sudo truncate -s 0 /etc/machine-id
+# Clean up before templating
+sudo cloud-init clean
+sudo truncate -s 0 /etc/machine-id      # CRITICAL - prevents network conflicts on clones
 sudo rm -f /var/lib/dbus/machine-id
 sudo ln -s /etc/machine-id /var/lib/dbus/machine-id
-
-# Clean cloud-init state
-sudo cloud-init clean
-
-# Clean apt cache
-sudo apt clean
-sudo apt autoremove -y
-
-# Zero-fill disk (makes clones smaller and faster)
-sudo dd if=/dev/zero of=/tmp/zeros bs=1M || true
-sudo rm -f /tmp/zeros
-sync
-
-# Shutdown
 sudo poweroff
-```
 
-### Convert VM to template
-
-```bash
-# On Proxmox shell - after VM is fully stopped
+# Back on Proxmox shell
 qm template 10000
 ```
 
 ---
 
-## Step 2 - Terraform Infrastructure
+## Configuration (Ansible)
 
-Terraform provisions all 5 VMs from the template using full clones,
-assigns static IPs via cloud-init, and generates the Ansible inventory file automatically.
+Ansible configures each VM based on its role. Inventory is auto-generated by Terraform.
 
-### Project structure
+### Structure
 
 ```
-terraform/
-├── main.tf                    # VM resources
-├── variables.tf               # variable declarations
-├── outputs.tf                 # outputs + ansible inventory generation
-├── ansible.tf                 # generates ansible/inventory.ini
-├── terraform.tfvars           # actual values - NOT in git
-└── terraform.tfvars.example   # example values - in git
+ansible/
+├── ansible.cfg                    # vault_password_file = ~/.vault-password
+├── inventory.ini                  # auto-generated by Terraform
+├── group_vars/
+│   ├── all/
+│   │   ├── main.yml               # global vars (ports, IPs, docker user)
+│   │   └── vault.yml              # ENCRYPTED secrets (Ansible Vault)
+│   ├── db.yml                     # postgres vars
+│   └── prod.yml                   # app image, tag, DB connection
+├── roles/
+│   ├── common/                    # all VMs: firewall (UFW), packages, timezone
+│   ├── nginx/                     # edge: nginx, upstream config, switch script
+│   ├── postgres/                  # db: PostgreSQL in Docker
+│   ├── app/                       # blue+green: app container, .env file
+│   └── monitoring/                # staging: Prometheus + Grafana (coming soon)
+└── playbooks/
+    ├── site.yml                   # full setup from scratch
+    ├── deploy-blue.yml            # deploy to BLUE + switch nginx
+    └── deploy-green.yml           # deploy to GREEN + switch nginx
 ```
 
-### Setup secrets
+### Roles
 
-I keep secrets out of the project in a separate file:
+| Role | Target VMs | What it does |
+|---|---|---|
+| `common` | All VMs | UFW firewall, base packages, UTC timezone |
+| `nginx` | edge-nginx | Install Nginx, upstream config, Blue/Green switch script |
+| `postgres` | db-postgresql | PostgreSQL 16 in Docker, accessible only on APP network |
+| `app` | blue + green | Pull Docker image from ghcr.io, write `.env`, start container |
+| `monitoring` | monitoring-staging | Prometheus + Grafana *(coming soon)* |
+
+### Usage
 
 ```bash
-# Create secrets file in home directory
-touch ~/.tf-secrets
-chmod 600 ~/.tf-secrets
+cd ansible
 
-# Edit it
-vim ~/.tf-secrets
+# Test connectivity
+ansible all -m ping
+
+# Full setup from scratch
+ansible-playbook playbooks/site.yml
+
+# Configure specific VM only
+ansible-playbook playbooks/site.yml --limit edge
+ansible-playbook playbooks/site.yml --limit db
+ansible-playbook playbooks/site.yml --limit prod
 ```
+
+---
+
+## Application (Docker)
+
+SilverBank is a Next.js 16 app with Prisma ORM and PostgreSQL.
+The Docker image is built for `linux/amd64` (Proxmox VMs) and pushed to GitHub Container Registry.
+
+### Image
+
+```
+ghcr.io/mariusiordan/silverbank:<tag>
+```
+
+Tags use short Git SHA: `sha-a1b2c3d`
+
+### Build & Push
+
+```bash
+# Build for linux/amd64 (required - Mac is arm64, Proxmox is amd64)
+docker buildx build --platform linux/amd64 \
+  -t ghcr.io/mariusiordan/silverbank:v1.x \
+  --push .
+```
+
+### Multi-stage Dockerfile
+
+```
+Stage 1 (builder) → install deps, generate Prisma client, build Next.js
+Stage 2 (runner)  → copy only production artifacts, run migrations + start server
+```
+
+---
+
+## CI/CD Pipelines (GitHub Actions)
+
+Three distinct pipelines matching the project requirements:
+
+### Pipeline 1 — Continuous Integration (`test.yml`)
+
+**Trigger:** Every push and pull request
+
+```
+lint ──────────────────────────────────────────────────────► pass/fail
+  ├── JWT Tests      ──────────────────────────────────────► pass/fail
+  ├── Auth Tests     (login + register) ──────────────────► pass/fail
+  └── Account Tests  ──────────────────────────────────────► pass/fail
+```
+
+All test jobs run **in parallel** after lint passes. Each test file has its own job so failures are immediately visible.
+
+### Pipeline 2 — Staging + Build (`deploy.yml`)
+
+**Trigger:** Push to `main` branch
+
+```
+lint
+  ├── JWT Tests     ┐
+  ├── Auth Tests    ├──► build Docker image ──► push to ghcr.io ──► deploy to Proxmox
+  └── Account Tests ┘
+
+Build is blocked if ANY test fails.
+```
+
+### Required GitHub Secrets
+
+| Secret | Description |
+|---|---|
+| `GHCR_TOKEN` | GitHub PAT with `write:packages` permission |
+| `PROXMOX_SSH_KEY` | Private SSH key (`~/.ssh/id_ed25519`) |
+| `VAULT_PASSWORD` | Ansible Vault password |
+
+---
+
+## Blue/Green Deployment
+
+Traffic is controlled by Nginx upstream config on the edge VM.
+Only one environment is active at a time.
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                    Blue/Green Flow                           │
+│                                                              │
+│  1. Deploy new version to IDLE environment (e.g. GREEN)      │
+│  2. Run health check directly on GREEN                       │
+│     curl http://10.10.20.12:3000/api/health                  │
+│  3. Switch Nginx traffic → GREEN becomes LIVE                │
+│  4. Monitor for 5-10 minutes                                 │
+│  5a. ✅ Healthy  → BLUE remains as instant rollback          │
+│  5b. ❌ Unhealthy → run switch script → back to BLUE         │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Traffic Switch
+
+```bash
+ssh devop@192.168.7.50
+
+sudo /opt/switch-backend.sh green   # switch to GREEN
+sudo /opt/switch-backend.sh blue    # switch to BLUE (rollback)
+sudo /opt/switch-backend.sh         # auto-switch to the other one
+```
+
+### Ansible Deploy
+
+```bash
+# Deploy new version to GREEN and switch traffic
+ansible-playbook playbooks/deploy-green.yml -e "app_tag=sha-a1b2c3d"
+
+# Rollback to BLUE
+ansible-playbook playbooks/deploy-blue.yml
+```
+
+---
+
+## Secrets Management
+
+Two separate secrets systems — one for infrastructure, one for the application.
+
+### Terraform Secrets (`~/.tf-secrets`)
+
+Kept outside the project directory, never committed.
 
 ```bash
 # ~/.tf-secrets
@@ -202,165 +338,89 @@ export TF_VAR_ssh_public_key="ssh-ed25519 AAAA..."
 ```
 
 ```bash
-# Add to ~/.zshrc
 echo 'source ~/.tf-secrets' >> ~/.zshrc
 source ~/.zshrc
-
-# Verify Terraform can see them
-env | grep TF_VAR
 ```
 
-Non-sensitive values go in `terraform.tfvars`:
+### Ansible Vault (`group_vars/all/vault.yml`)
 
-```hcl
-proxmox_endpoint = "https://192.168.7.12:8006"
-node_name        = "pve"
-template_vmid    = 10000
-vm_storage       = "zfs-nvmeT500-vm"
-ci_user          = "devop"
-lan_gateway      = "192.168.7.1"
+All application secrets are encrypted with Ansible Vault.
+
+```bash
+# Edit secrets
+ansible-vault edit ansible/group_vars/all/vault.yml
+
+# View secrets
+ansible-vault view ansible/group_vars/all/vault.yml
 ```
 
-### VM configuration (main.tf)
+Vault password stored in `~/.vault-password` (not committed).  
+For GitHub Actions, stored as `VAULT_PASSWORD` secret.
 
-All 5 VMs are defined in a single `locals` block and created with `for_each`:
+---
 
-```hcl
-locals {
-  vms = {
-    edge  = { name = "edge-nginx",         vmid = 850, cores = 2, ram_mb = 2048, lan_ip = "192.168.7.50",  app_ip = "10.10.20.10" }
-    blue  = { name = "prod-vm1-BLUE",      vmid = 810, cores = 2, ram_mb = 4096, lan_ip = "192.168.7.101", app_ip = "10.10.20.11" }
-    green = { name = "prod-vm2-GREEN",     vmid = 811, cores = 2, ram_mb = 4096, lan_ip = "192.168.7.102", app_ip = "10.10.20.12" }
-    db    = { name = "db-postgresql",      vmid = 860, cores = 2, ram_mb = 4096, lan_ip = "192.168.7.60",  app_ip = "10.10.20.20" }
-    stage = { name = "monitoring-staging", vmid = 800, cores = 2, ram_mb = 4096, lan_ip = "192.168.7.70",  app_ip = "10.10.20.30" }
-  }
-}
+## Getting Started
+
+### Prerequisites
+
+- Proxmox VE server with an Ubuntu 24.04 template (VMID 10000)
+- Terraform >= 1.5
+- Ansible >= 2.14
+- Docker with buildx
+- SSH key pair at `~/.ssh/id_ed25519`
+
+### 1. Clone the repo
+
+```bash
+git clone https://github.com/mariusiordan/DevOps-final-project.git
+cd DevOps-final-project
 ```
 
-### Run Terraform
+### 2. Set up Terraform secrets
+
+```bash
+cat > ~/.tf-secrets << 'EOF'
+export TF_VAR_proxmox_api_token="root@pam!terraform=YOUR_TOKEN"
+export TF_VAR_ci_password="YOUR_VM_PASSWORD"
+export TF_VAR_ssh_public_key="$(cat ~/.ssh/id_ed25519.pub)"
+EOF
+chmod 600 ~/.tf-secrets
+source ~/.tf-secrets
+```
+
+### 3. Provision VMs
 
 ```bash
 cd terraform
-
 terraform init
-terraform plan
 terraform apply -parallelism=3
 ```
 
-After apply, Terraform automatically creates `ansible/inventory.ini`.
-
-### Verify all VMs are up
+### 4. Set up Ansible Vault password
 
 ```bash
-ssh devop@192.168.7.50    # edge-nginx
-ssh devop@192.168.7.101   # prod-blue
-ssh devop@192.168.7.102   # prod-green
-ssh devop@192.168.7.60    # db
-ssh devop@192.168.7.70    # monitoring
-
-# On each VM check cloud-init finished
-sudo cloud-init status
-# expected: status: done
+echo "your-vault-password" > ~/.vault-password
+chmod 600 ~/.vault-password
 ```
 
----
-
-## Step 3 - Ansible Configuration
-
-Ansible configures each VM based on its role.
-The inventory is auto-generated by Terraform so I don't have to manage it manually.
-
-### How Ansible is structured
-
-```
-ansible/
-├── ansible.cfg                # Ansible settings (SSH user, key, inventory path)
-├── inventory.ini              # auto-generated by Terraform - list of VMs and IPs
-├── group_vars/
-│   ├── all.yml                # variables available to ALL VMs
-│   ├── db.yml                 # variables only for the db VM (postgres credentials)
-│   └── prod.yml               # variables only for blue/green (app image, db connection)
-├── roles/
-│   ├── common/                # runs on every VM - firewall, base packages, timezone
-│   ├── nginx/                 # runs on edge VM - install nginx, configs, switch script
-│   ├── postgres/              # runs on db VM - start PostgreSQL in Docker
-│   ├── app/                   # runs on blue+green - start app container in Docker
-│   └── monitoring/            # runs on staging VM - Prometheus + Grafana (coming soon)
-└── playbooks/
-    ├── site.yml               # configure everything from scratch
-    ├── deploy-blue.yml        # deploy new version to blue + switch nginx traffic
-    └── deploy-green.yml       # deploy new version to green + switch nginx traffic
-```
-
-### What each role does
-
-**common** - runs on ALL VMs
-- apt update and install base packages (curl, wget, git, htop)
-- setup UFW firewall - deny everything except SSH port 22
-- set timezone to UTC
-
-**nginx** - runs on edge VM (192.168.7.50)
-- install Nginx
-- deploy upstream config pointing to BLUE by default
-- deploy reverse proxy config
-- deploy blue/green switch script at `/opt/switch-backend.sh`
-
-**postgres** - runs on db VM (192.168.7.60)
-- create `/opt/postgres` directory
-- deploy docker-compose.yml with PostgreSQL config
-- start postgres container - only accessible from APP network (10.10.20.0/24)
-
-**app** - runs on blue and green VMs
-- create `/opt/app` directory
-- deploy docker-compose.yml and .env file with database connection
-- pull and start the app container
-
-### Test connectivity first
+### 5. Configure all VMs
 
 ```bash
 cd ansible
-ansible all -m ping
-# all VMs should return pong
-```
-
-### Run full configuration
-
-```bash
+ansible all -m ping         # verify connectivity
 ansible-playbook playbooks/site.yml
 ```
 
-### Run on specific VMs only
+### 6. Verify
 
 ```bash
-ansible-playbook playbooks/site.yml --limit edge
-ansible-playbook playbooks/site.yml --limit db
-ansible-playbook playbooks/site.yml --limit prod
+curl http://192.168.7.50            # app via nginx
+curl http://192.168.7.50/api/health # health check
 ```
 
-### Blue/Green deployment
+### SSH Config (optional but recommended)
 
-```bash
-# Deploy new version to green, nginx switches traffic automatically
-ansible-playbook playbooks/deploy-green.yml -e "app_tag=v1.2"
-
-# Something went wrong? Rollback to blue instantly
-ansible-playbook playbooks/deploy-blue.yml
-```
-
-### Manual traffic switch on the nginx VM
-
-```bash
-ssh devop@192.168.7.50
-sudo /opt/switch-backend.sh green   # switch to green
-sudo /opt/switch-backend.sh blue    # switch back to blue
-sudo /opt/switch-backend.sh         # auto-switch to the other one
-```
-
----
-
-## SSH Config (Quality of Life)
-
-To avoid known_hosts issues when VMs are recreated with Terraform:
+Avoids known_hosts issues when VMs are recreated with Terraform:
 
 ```
 # ~/.ssh/config
@@ -373,25 +433,49 @@ Host 192.168.7.*
 
 ---
 
-## Current Status
+## Status
 
-| Component         | VM                   | Status           |
-|-------------------|----------------------|------------------|
-| common (firewall) | all VMs              | ✅ done          |
-| nginx             | edge  192.168.7.50   | ✅ done          |
-| app container     | blue  192.168.7.101  | ✅ done          |
-| app container     | green 192.168.7.102  | ✅ done          |
-| PostgreSQL        | db    192.168.7.60   | ✅ done          |
-| monitoring        | stage 192.168.7.70   | ⏳ coming soon   |
-| Dockerfile        | app                  | ⏳ coming soon   |
-| CI/CD pipeline    | GitHub Actions       | ⏳ coming soon   |
+| Component | VM | IP | Status |
+|---|---|---|---|
+| Terraform provisioning | all VMs | — | ✅ Done |
+| Common (firewall + packages) | all VMs | — | ✅ Done |
+| Nginx + Blue/Green switch | edge-nginx | 192.168.7.50 | ✅ Done |
+| App container (Blue) | prod-vm1-BLUE | 192.168.7.101 | ✅ Done |
+| App container (Green) | prod-vm2-GREEN | 192.168.7.102 | ✅ Done |
+| PostgreSQL 16 | db-postgresql | 192.168.7.60 | ✅ Done |
+| GitHub Actions — CI tests | — | — | ✅ Done |
+| GitHub Actions — Build + Push | — | — | ✅ Done |
+| GitHub Actions — Deploy | — | — | ✅ Done |
+| Manual approval gate (prod) | — | — | 🔲 Planned |
+| Smoke tests before switch | — | — | 🔲 Planned |
+| Rollback after 10 min | — | — | 🔲 Planned |
+| SSL / Let's Encrypt | edge-nginx | 192.168.7.50 | 🔲 Planned |
+| Prometheus + Grafana | monitoring-staging | 192.168.7.70 | 🔲 Planned |
 
 ---
 
-## What's Next
+## Repo Structure
 
-- Dockerfile for the Node.js + React app
-- Push Docker image to GitHub Container Registry (ghcr.io)
-- GitHub Actions CI/CD pipeline (build image → push to registry → trigger Ansible deploy)
-- SSL certificate with Let's Encrypt on Nginx
-- Grafana dashboards for app and infrastructure metrics
+```
+DevOps-final-project/
+├── terraform/                 # VM provisioning
+│   ├── main.tf
+│   ├── variables.tf
+│   ├── outputs.tf
+│   └── terraform.tfvars.example
+├── ansible/                   # VM configuration and deployments
+│   ├── ansible.cfg
+│   ├── inventory.ini          # auto-generated by Terraform
+│   ├── group_vars/
+│   ├── roles/
+│   └── playbooks/
+├── docs/
+│   └── templates/             # nginx configs, switch script templates
+├── COMMANDS.md                # full command reference and troubleshooting
+├── PROJECT-STATUS.md          # requirements checklist vs implementation
+└── README.md
+```
+
+---
+
+*SilverBank app repository: [mariusiordan/SilverBank-App](https://github.com/mariusiordan/SilverBank-App)*
