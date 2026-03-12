@@ -3,15 +3,15 @@
 # Usage: ./switch-nginx.sh blue|green
 
 TARGET=$1
-NGINX_CONFIG="/etc/nginx/sites-available/silverbank"
+UPSTREAM_CONFIG="/etc/nginx/conf.d/upstream.conf"
 
 if [ "$TARGET" != "blue" ] && [ "$TARGET" != "green" ]; then
   echo "Usage: $0 blue|green"
   exit 1
 fi
 
-BLUE_IP="${BLUE_IP:-10.0.1.10}"
-GREEN_IP="${GREEN_IP:-10.0.1.11}"
+BLUE_IP="${BLUE_IP:-10.0.2.110}"
+GREEN_IP="${GREEN_IP:-10.0.2.40}"
 
 if [ "$TARGET" == "blue" ]; then
   ACTIVE_IP=$BLUE_IP
@@ -21,32 +21,18 @@ fi
 
 echo "Switching traffic to $TARGET ($ACTIVE_IP)..."
 
-cat > $NGINX_CONFIG << EOF
+cat > $UPSTREAM_CONFIG << NGINX
 upstream silverbank_active {
   server $ACTIVE_IP:3000;
 }
-
-server {
-  listen 80;
-  server_name _;
-
-  location / {
-    proxy_pass http://silverbank_active;
-    proxy_set_header Host \$host;
-    proxy_set_header X-Real-IP \$remote_addr;
-  }
-
-  location /api/health {
-    proxy_pass http://silverbank_active/api/health;
-  }
-}
-EOF
+NGINX
 
 nginx -t && systemctl reload nginx
 
 if [ $? -eq 0 ]; then
   echo "✅ Traffic switched to $TARGET successfully!"
   echo $TARGET > /opt/current-env
+  echo "[$TARGET] $(date)" >> /var/log/nginx/switches.log
 else
   echo "❌ Nginx reload failed! Rolling back..."
   exit 1
