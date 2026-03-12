@@ -269,7 +269,7 @@ resource "aws_instance" "db" {
 # Elastic IP for NAT Gateway
 resource "aws_eip" "nat" {
   domain = "vpc"
-  tags = { Name = "silverbank-nat-eip" }
+  tags   = { Name = "silverbank-nat-eip" }
 }
 
 # NAT Gateway - allows private subnet to reach internet (for apt, docker pull)
@@ -277,8 +277,8 @@ resource "aws_eip" "nat" {
 resource "aws_nat_gateway" "main" {
   allocation_id = aws_eip.nat.id
   subnet_id     = aws_subnet.public.id
-  tags = { Name = "silverbank-nat" }
-  depends_on = [aws_internet_gateway.main]
+  tags          = { Name = "silverbank-nat" }
+  depends_on    = [aws_internet_gateway.main]
 }
 
 # Route table for private subnet - sends traffic through NAT Gateway

@@ -16,6 +16,6 @@ locals {
 }
 
 resource "local_file" "ansible_inventory" {
-  filename = "${path.module}/ansible/inventory.ini"
+  filename = "${path.module}/../proxmox-silverbank/ansible/inventory.ini"
   content  = join("\n", [trimspace(local.inventory), ""])
 }

@@ -28,6 +28,7 @@ locals {
       disk_gb = 32
       lan_ip  = "192.168.7.50"
       app_ip  = "10.10.20.10"
+      tags = ["silverbank", "edge-nginx", "reverse-proxy"]
     }
     blue = {
       name    = "prod-vm1-BLUE"
@@ -37,6 +38,7 @@ locals {
       disk_gb = 32
       lan_ip  = "192.168.7.101"
       app_ip  = "10.10.20.11"
+      tags = ["silverbank", "prod-blue",  "active"]
     }
     green = {
       name    = "prod-vm2-GREEN"
@@ -46,6 +48,7 @@ locals {
       disk_gb = 32
       lan_ip  = "192.168.7.102"
       app_ip  = "10.10.20.12"
+      tags = ["silverbank", "prod-green", "idle"]
     }
     db = {
       name    = "db-postgresql"
@@ -55,6 +58,7 @@ locals {
       disk_gb = 32
       lan_ip  = "192.168.7.60"
       app_ip  = "10.10.20.20"
+      tags    = ["silverbank", "database",   "postgresql-16"]
     }
     stage = {
       name    = "monitoring-staging"
@@ -64,6 +68,7 @@ locals {
       disk_gb = 32
       lan_ip  = "192.168.7.70"
       app_ip  = "10.10.20.30"
+      tags    = ["silverbank", "monitoring", "staging"]
     }
   }
 }
@@ -77,6 +82,7 @@ resource "proxmox_virtual_environment_vm" "vm" {
 
   started = true
   on_boot = true
+  tags = each.value.tags
 
   # Clone from template VMID=9999
   clone {
