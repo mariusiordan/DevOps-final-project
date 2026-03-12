@@ -1,0 +1,83 @@
+---
+# common/tasks/main.yml
+# This role runs on ALL VMs - basic setup every server needs
+
+# Update the package list so we can install latest versions
+- name: Update apt cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+# Install basic tools we need on every server
+- name: Install common packages
+  apt:
+    name:
+      - curl
+      - wget
+      - git
+      - htop
+      - net-tools
+      - ufw
+      - ca-certificates
+      - gnupg
+      - lsb-release
+    state: present
+
+# Firewall rule - always allow SSH so we don't lock ourselves out
+- name: Allow SSH through firewall
+  ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+
+# Enable firewall
+- name: Enable UFW firewall
+  ufw:
+    state: enabled
+    policy: deny
+    direction: incoming
+
+# Set timezone to UTC
+- name: Set timezone to UTC
+  timezone:
+    name: UTC
+
+# ── Docker Installation ──────────────────────────────────────
+
+# Add Docker's official GPG key
+- name: Add Docker GPG key
+  apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+
+# Add Docker repository
+- name: Add Docker repository
+  apt_repository:
+    repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    state: present
+
+# Install Docker
+- name: Install Docker
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+    update_cache: yes
+
+# Enable and start Docker
+- name: Enable and start Docker
+  systemd:
+    name: docker
+    enabled: yes
+    state: started
+
+# Add ubuntu user to docker group so it can run docker without sudo
+- name: Add ubuntu user to docker group
+  user:
+    name: ubuntu
+    groups: docker
+    append: yes

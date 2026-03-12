@@ -1,43 +1,77 @@
-terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
+# ============================================================
+# DATA SOURCES
+# ============================================================
+
+# Get the latest Ubuntu 24.04 LTS AMI automatically from Canonical
+# This avoids hardcoding AMI IDs which change per region and expire
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  owners      = ["099720109477"] # Canonical's official AWS account ID
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+
+  filter {
+    name   = "architecture"
+    values = ["x86_64"]
   }
 }
 
-provider "aws" {
-  region = var.aws_region
-}
+# ============================================================
+# VPC AND NETWORKING
+# ============================================================
 
-# ─── VPC & NETWORKING ───────────────────────────────
-resource "aws_vpc" "silverbank" {
+resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_hostnames = true
+  enable_dns_support   = true
+
   tags = { Name = "silverbank-vpc" }
 }
 
-resource "aws_internet_gateway" "silverbank" {
-  vpc_id = aws_vpc.silverbank.id
-  tags   = { Name = "silverbank-igw" }
-}
-
+# Public subnet - edge nginx lives here (accessible from internet)
 resource "aws_subnet" "public" {
-  vpc_id                  = aws_vpc.silverbank.id
+  vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.1.0/24"
   availability_zone       = "${var.aws_region}a"
   map_public_ip_on_launch = true
+
   tags = { Name = "silverbank-public" }
 }
 
+# Private subnet - app VMs and DB live here (no direct internet access) 
+resource "aws_subnet" "private" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.2.0/24"
+  availability_zone = "${var.aws_region}a"
+
+  tags = { Name = "silverbank-private" }
+}
+
+# Internet Gateway - allows public subnet to reach the internet
+resource "aws_internet_gateway" "main" {
+  vpc_id = aws_vpc.main.id
+
+  tags = { Name = "silverbank-igw" }
+}
+
+# Route table for public subnet - sends traffic to internet gateway
 resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.silverbank.id
+  vpc_id = aws_vpc.main.id
+
   route {
     cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.silverbank.id
+    gateway_id = aws_internet_gateway.main.id
   }
-  tags = { Name = "silverbank-rt" }
+
+  tags = { Name = "silverbank-public-rt" }
 }
 
 resource "aws_route_table_association" "public" {
@@ -45,110 +79,221 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
-# ─── SECURITY GROUPS ────────────────────────────────
-resource "aws_security_group" "jenkins" {
-  name   = "silverbank-jenkins-sg"
-  vpc_id = aws_vpc.silverbank.id
+# ============================================================
+# SSH KEY PAIR
+# ============================================================
 
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = [var.my_ip]
-  }
-  ingress {
-    from_port   = 8080
-    to_port     = 8080
-    protocol    = "tcp"
-    cidr_blocks = [var.my_ip]
-  }
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  tags = { Name = "silverbank-jenkins-sg" }
+resource "aws_key_pair" "silverbank" {
+  key_name   = "silverbank-key"
+  public_key = var.ssh_public_key
+
+  tags = { Name = "silverbank-key" }
 }
 
-resource "aws_security_group" "app" {
-  name   = "silverbank-app-sg"
-  vpc_id = aws_vpc.silverbank.id
+# ============================================================
+# SECURITY GROUPS
+# ============================================================
 
+# Edge Nginx - accepts HTTP from internet + SSH from your IP only
+resource "aws_security_group" "edge" {
+  name        = "silverbank-edge"
+  description = "Edge nginx - HTTP public, SSH restricted"
+  vpc_id      = aws_vpc.main.id
+
+  # HTTP from anywhere (no HTTPS yet - no SSL certificate)
   ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = [var.my_ip]
-  }
-  ingress {
+    description = "HTTP from internet"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
+
+  # SSH only from your home IP - never open SSH to 0.0.0.0/0
   ingress {
-    from_port   = 3000
-    to_port     = 3000
+    description = "SSH from home"
+    from_port   = 22
+    to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.your_home_ip]
   }
+
+  # Allow all outbound traffic
   egress {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+
+  tags = { Name = "silverbank-edge-sg" }
+}
+
+# App VMs (blue + green) - accepts traffic from nginx and SSH from edge only
+resource "aws_security_group" "app" {
+  name        = "silverbank-app"
+  description = "App servers - port 3000 from nginx, SSH from edge"
+  vpc_id      = aws_vpc.main.id
+
+  # App port from nginx edge only (not from internet directly)
+  ingress {
+    description     = "App port from nginx"
+    from_port       = 3000
+    to_port         = 3000
+    protocol        = "tcp"
+    security_groups = [aws_security_group.edge.id]
+  }
+
+  # SSH from edge VM only (bastion pattern - no direct SSH from internet)
+  ingress {
+    description     = "SSH from edge (bastion)"
+    from_port       = 22
+    to_port         = 22
+    protocol        = "tcp"
+    security_groups = [aws_security_group.edge.id]
+  }
+
+  # Allow all outbound (needed to pull Docker images from ghcr.io)
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   tags = { Name = "silverbank-app-sg" }
 }
 
-# ─── EC2 INSTANCES ──────────────────────────────────
-resource "aws_instance" "jenkins" {
-  ami                    = "ami-08eb150f611ca277f" # Ubuntu 22.04 eu-north-1
-  instance_type          = var.instance_type
-  subnet_id              = aws_subnet.public.id
-  vpc_security_group_ids = [aws_security_group.jenkins.id]
-  key_name               = var.key_name
+# Database - accepts PostgreSQL only from app VMs
+resource "aws_security_group" "db" {
+  name        = "silverbank-db"
+  description = "PostgreSQL - port 5432 from app servers only"
+  vpc_id      = aws_vpc.main.id
 
-  tags = { Name = "silverbank-jenkins" }
+  # PostgreSQL from app VMs only - DB is never exposed to internet
+  ingress {
+    description     = "PostgreSQL from app servers"
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.app.id]
+  }
+
+  # SSH from edge VM only
+  ingress {
+    description     = "SSH from edge (bastion)"
+    from_port       = 22
+    to_port         = 22
+    protocol        = "tcp"
+    security_groups = [aws_security_group.edge.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = { Name = "silverbank-db-sg" }
 }
 
-resource "aws_instance" "staging" {
-  ami                    = "ami-08eb150f611ca277f"
-  instance_type          = var.instance_type
-  subnet_id              = aws_subnet.public.id
-  vpc_security_group_ids = [aws_security_group.app.id]
-  key_name               = var.key_name
+# ============================================================
+# EC2 INSTANCES
+# ============================================================
 
-  tags = { Name = "silverbank-staging" }
+# Edge Nginx - public subnet, has public IP
+resource "aws_instance" "edge" {
+  ami                    = data.aws_ami.ubuntu.id
+  instance_type          = var.instance_type_edge
+  key_name               = aws_key_pair.silverbank.key_name
+  subnet_id              = aws_subnet.public.id
+  vpc_security_group_ids = [aws_security_group.edge.id]
+
+  root_block_device {
+    volume_size = 20
+    volume_type = "gp3"
+  }
+
+  tags = { Name = "edge-nginx" }
 }
 
-resource "aws_instance" "prod_blue" {
-  ami                    = "ami-08eb150f611ca277f"
-  instance_type          = var.instance_type
-  subnet_id              = aws_subnet.public.id
+# Prod BLUE - private subnet
+resource "aws_instance" "blue" {
+  ami                    = data.aws_ami.ubuntu.id
+  instance_type          = var.instance_type_app
+  key_name               = aws_key_pair.silverbank.key_name
+  subnet_id              = aws_subnet.private.id
   vpc_security_group_ids = [aws_security_group.app.id]
-  key_name               = var.key_name
 
-  tags = { Name = "silverbank-prod-blue" }
+  root_block_device {
+    volume_size = 20
+    volume_type = "gp3"
+  }
+
+  tags = { Name = "prod-vm1-BLUE" }
 }
 
-resource "aws_instance" "prod_green" {
-  ami                    = "ami-08eb150f611ca277f"
-  instance_type          = var.instance_type
-  subnet_id              = aws_subnet.public.id
+# Prod GREEN - private subnet
+resource "aws_instance" "green" {
+  ami                    = data.aws_ami.ubuntu.id
+  instance_type          = var.instance_type_app
+  key_name               = aws_key_pair.silverbank.key_name
+  subnet_id              = aws_subnet.private.id
   vpc_security_group_ids = [aws_security_group.app.id]
-  key_name               = var.key_name
 
-  tags = { Name = "silverbank-prod-green" }
+  root_block_device {
+    volume_size = 20
+    volume_type = "gp3"
+  }
+
+  tags = { Name = "prod-vm2-GREEN" }
 }
 
-resource "aws_instance" "nginx" {
-  ami                    = "ami-08eb150f611ca277f"
-  instance_type          = var.instance_type
-  subnet_id              = aws_subnet.public.id
-  vpc_security_group_ids = [aws_security_group.app.id]
-  key_name               = var.key_name
+# Database PostgreSQL - private subnet
+resource "aws_instance" "db" {
+  ami                    = data.aws_ami.ubuntu.id
+  instance_type          = var.instance_type_db
+  key_name               = aws_key_pair.silverbank.key_name
+  subnet_id              = aws_subnet.private.id
+  vpc_security_group_ids = [aws_security_group.db.id]
 
-  tags = { Name = "silverbank-nginx" }
+  root_block_device {
+    volume_size = 30 # more space for DB data
+    volume_type = "gp3"
+  }
+
+  tags = { Name = "db-postgresql" }
+}
+
+# Elastic IP for NAT Gateway
+resource "aws_eip" "nat" {
+  domain = "vpc"
+  tags = { Name = "silverbank-nat-eip" }
+}
+
+# NAT Gateway - allows private subnet to reach internet (for apt, docker pull)
+# Lives in public subnet, routes outbound traffic for private instances
+resource "aws_nat_gateway" "main" {
+  allocation_id = aws_eip.nat.id
+  subnet_id     = aws_subnet.public.id
+  tags = { Name = "silverbank-nat" }
+  depends_on = [aws_internet_gateway.main]
+}
+
+# Route table for private subnet - sends traffic through NAT Gateway
+resource "aws_route_table" "private" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.main.id
+  }
+
+  tags = { Name = "silverbank-private-rt" }
+}
+
+resource "aws_route_table_association" "private" {
+  subnet_id      = aws_subnet.private.id
+  route_table_id = aws_route_table.private.id
 }

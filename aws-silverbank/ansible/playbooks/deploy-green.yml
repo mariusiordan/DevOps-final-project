@@ -1,0 +1,25 @@
+---
+# playbooks/deploy-green.yml
+# Deploy a new version to GREEN and switch nginx traffic to it
+#
+# Usage:
+#   ansible-playbook playbooks/deploy-green.yml
+#   ansible-playbook playbooks/deploy-green.yml -e "app_tag=v1.2"
+#
+# Flow:
+#   1. Deploy new image to GREEN VM
+#   2. Switch nginx to send traffic to GREEN
+#   3. BLUE stays running as fallback - rollback with deploy-blue.yml
+
+- name: Deploy app to GREEN
+  hosts: prod-vm2-GREEN
+  become: true
+  roles:
+    - app
+
+- name: Switch nginx traffic to GREEN
+  hosts: edge
+  become: true
+  tasks:
+    - name: Switch to green
+      command: /opt/switch-backend.sh green

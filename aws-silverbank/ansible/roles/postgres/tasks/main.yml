@@ -1,0 +1,41 @@
+---
+# postgres/tasks/main.yml
+# This role runs on the db VM only (192.168.7.60)
+# PostgreSQL runs inside a Docker container
+# Data is stored on the VM at /opt/postgres/data so it survives container restarts
+
+# Only allow database connections from the internal APP network
+# This means only blue and green VMs can connect to the database
+- name: Allow PostgreSQL only from APP network
+  ufw:
+    rule: allow
+    port: "{{ postgres_port }}"
+    proto: tcp
+    src: "10.10.20.0/24"  # only the internal APP network (vmbr1)
+
+# Create the folders needed for postgres
+- name: Create postgres directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ docker_user }}"
+    group: "{{ docker_user }}"
+    mode: "0755"
+  loop:
+    - /opt/postgres          # docker-compose.yml lives here
+    - "{{ postgres_data_dir }}"  # actual database files live here
+
+# Copy the docker-compose file with our postgres settings
+- name: Deploy docker-compose for PostgreSQL
+  template:
+    src: docker-compose.yml.j2
+    dest: /opt/postgres/docker-compose.yml
+    owner: "{{ docker_user }}"
+    group: "{{ docker_user }}"
+
+# Start postgres container using docker compose
+- name: Start PostgreSQL container
+  become_user: "{{ docker_user }}"
+  command:
+    cmd: docker compose up -d
+    chdir: /opt/postgres  # run this command from the /opt/postgres folder

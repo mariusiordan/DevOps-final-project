@@ -1,0 +1,34 @@
+# app.conf.j2
+# Main nginx site configuration
+# This proxies all incoming requests to the app_backend (blue or green)
+
+server {
+    listen 80;       # listen on port 80 (HTTP)
+    server_name _;   # accept requests for any domain/IP
+
+    location / {
+        # Forward requests to the upstream (blue or green)
+        proxy_pass http://app_backend;
+        proxy_http_version 1.1;
+
+        # Pass the real client IP and other info to the app
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Needed for WebSocket support (if your app uses it)
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        # How long to wait before giving up
+        proxy_connect_timeout 60s;
+        proxy_send_timeout    60s;
+        proxy_read_timeout    60s;
+    }
+
+    # Health check endpoint - used to verify the app is running
+    location /health {
+        proxy_pass http://app_backend/health;
+    }
+}

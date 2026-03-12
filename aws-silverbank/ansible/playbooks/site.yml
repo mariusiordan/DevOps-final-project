@@ -1,0 +1,44 @@
+---
+# playbooks/site.yml
+# Main playbook - configures ALL VMs from scratch
+# Run with: ansible-playbook playbooks/site.yml
+#
+# To run on specific VMs only:
+#   ansible-playbook playbooks/site.yml --limit edge
+#   ansible-playbook playbooks/site.yml --limit db
+#   ansible-playbook playbooks/site.yml --limit prod
+
+# Step 1 - run common setup on every single VM
+- name: Common setup on all hosts
+  hosts: all
+  become: true  # run as sudo
+  roles:
+    - common
+
+# Step 2 - configure the edge VM as a reverse proxy
+- name: Configure edge nginx
+  hosts: edge
+  become: true
+  roles:
+    - nginx
+
+# Step 3 - deploy the app on both blue and green VMs
+- name: Configure prod app servers
+  hosts: prod
+  become: true
+  roles:
+    - app
+
+# Step 4 - set up the database on the db VM
+- name: Configure database
+  hosts: db
+  become: true
+  roles:
+    - postgres
+
+# Step 5 - monitoring (commented out for now - will add later)
+# - name: Configure monitoring
+#   hosts: monitoring
+#   become: true
+#   roles:
+#     - monitoring

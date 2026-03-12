@@ -1,0 +1,12 @@
+# group_vars/db.yml
+# Variables only available to the [db] group (db-postgresql VM)
+# Change these values before running ansible-playbook
+
+postgres_user:     "{{ vault_db_user }}"
+postgres_password: "{{ vault_db_password }}"  # database password - change this!
+postgres_db:       appdb         # database name
+postgres_port:     5432          # default postgres port
+postgres_data_dir: /opt/postgres/data  # where postgres stores data on the VM
+
+
+
