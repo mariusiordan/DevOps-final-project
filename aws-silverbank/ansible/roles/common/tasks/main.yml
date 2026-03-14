@@ -81,3 +81,12 @@
     name: ubuntu
     groups: docker
     append: yes
+
+# Reset SSH connection so docker group takes effect immediately
+- name: Reset SSH connection for docker group
+  meta: reset_connection
+# Wait for SSH to be ready after reset
+- name: Wait for connection to be ready
+  wait_for_connection:
+    delay: 5       # așteaptă 5 secunde înainte să încerce
+    timeout: 30    # încearcă maximum 30 secunde
