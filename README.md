@@ -97,7 +97,8 @@ After apply, it automatically generates `ansible/inventory.ini`.
 | `prod-vm2-GREEN` | 811 | 192.168.7.102 | 10.10.20.12 | 2 vCPU / 4GB | Production (Green) |
 | `db-postgresql` | 860 | 192.168.7.60 | 10.10.20.20 | 2 vCPU / 4GB | Database |
 | `monitoring-staging` | 800 | 192.168.7.70 | 10.10.20.30 | 2 vCPU / 4GB | Monitoring / Staging |
-
+| `edge-backup` | 851 | 192.168.7.51 | 10.10.20.51 | 2 vCPU / 2GB | Backup reverse proxy |
+| `db-replica` | 861 | 192.168.7.61 | 10.10.20.21 | 2 vCPU / 4GB | Database replica (standby) |
 ### Project Structure
 
 ```
@@ -169,6 +170,8 @@ ansible/
 │   │   └── vault.yml              # ENCRYPTED secrets (Ansible Vault)
 │   ├── db.yml                     # postgres vars
 │   └── prod.yml                   # app image, tag, DB connection
+│   ├── db_replica.yml             # postgres vars for replica (different IP: 10.10.20.21)
+│   └── monitoring.yml             # staging app vars (app_tag: staging)
 ├── roles/
 │   ├── common/                    # all VMs: firewall (UFW), packages, timezone
 │   ├── nginx/                     # edge: nginx, upstream config, switch script
@@ -179,6 +182,9 @@ ansible/
     ├── site.yml                   # full setup from scratch
     ├── deploy-blue.yml            # deploy to BLUE + switch nginx
     └── deploy-green.yml           # deploy to GREEN + switch nginx
+    ├── deploy-staging.yml         # deploy to staging + health check
+│   ├── deploy-production.yml      # auto Blue/Green + smoke tests + switch + rollback
+│   └── db-failover.yml            # emergency switch app to DB replica
 ```
 
 ### Roles
@@ -190,6 +196,7 @@ ansible/
 | `postgres` | db-postgresql | PostgreSQL 16 in Docker, accessible only on APP network |
 | `app` | blue + green | Pull Docker image from ghcr.io, write `.env`, start container |
 | `monitoring` | monitoring-staging | Prometheus + Grafana *(coming soon)* |
+| `postgres` | db-postgresql, db-replica | PostgreSQL 16 in Docker + DB sync cron job |
 
 ### Usage
 
@@ -309,6 +316,24 @@ sudo /opt/switch-backend.sh green   # switch to GREEN
 sudo /opt/switch-backend.sh blue    # switch to BLUE (rollback)
 sudo /opt/switch-backend.sh         # auto-switch to the other one
 ```
+
+### Database Replica & Sync
+
+To protect against database failure, a replica VM syncs from the primary every 30 minutes.
+db-postgresql (10.10.20.20) — PRIMARY
+    │
+    │  cron every 30 minutes:
+    │  pg_dump → scp → psql restore
+    ▼
+db-replica (10.10.20.21) — STANDBY
+    max 30 minutes behind primary
+Failover - if primary DB goes down
+bashcd proxmox-silverbank/ansible
+ansible-playbook playbooks/db-failover.yml -i inventory.ini
+# Switches all app VMs to use db-replica automatically
+Check sync logs
+bashssh devop@192.168.7.60
+tail -f /var/log/db-sync.log
 
 ### Ansible Deploy
 

@@ -1,0 +1,11 @@
+# group_vars/db_replica.yml
+# Variables for db-replica VM only
+# Overrides db_app_ip from all/main.yml
+
+db_app_ip: "10.10.20.21"   # IP-ul propriu al replicei, nu al primaryului
+
+postgres_user:     "{{ vault_db_user }}"
+postgres_password: "{{ vault_db_password }}"
+postgres_db:       appdb
+postgres_port:     5432
+postgres_data_dir: /opt/postgres/data

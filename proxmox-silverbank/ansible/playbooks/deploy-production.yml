@@ -1,68 +1,116 @@
 ---
 # playbooks/deploy-production.yml
-# Auto-detect idle environment, deploy, smoke test, switch traffic
+# Full Blue/Green production deployment with auto-detection and smoke tests
+# Triggered by deploy.yml GitHub Actions workflow AFTER manual approval
 #
 # Usage:
 #   ansible-playbook playbooks/deploy-production.yml -e "app_tag=sha-abc123"
 #
 # Flow:
-#   1. Check which environment is active (blue or green)
-#   2. Deploy to idle environment
-#   3. Smoke tests on idle environment
-#   4. Switch nginx traffic to new environment
+#   1. Read /opt/current-env on edge nginx to find which env is active
+#   2. Calculate which env is idle (the opposite of active)
+#   3. Deploy new image to the idle environment
+#   4. Run smoke tests directly on the idle VM (traffic still goes to active)
+#   5. If smoke tests pass → switch nginx traffic to the new environment
+#   6. If smoke tests fail → stop, do not switch (active env keeps serving traffic)
 
+# ============================================================
+# PLAY 1 - Detect which environment is currently active
+# Runs on the edge nginx VM because that's where /opt/current-env lives
+# This file is written by switch-backend.sh every time we switch traffic
+# ============================================================
 - name: Detect active environment
   hosts: edge
   become: true
   tasks:
+
+    # Read the file that contains "blue" or "green"
+    # failed_when: false means Ansible won't fail if the file doesn't exist yet
+    # (first deployment ever - the file hasn't been created yet)
     - name: Read current active environment
       command: cat /opt/current-env
-      register: current_env
-      failed_when: false
+      register: current_env  # saves the file contents in current_env.stdout
+      failed_when: false     # don't fail if file doesn't exist
 
+    # Calculate active and idle environments from the file content
+    # default('blue') = assume blue is active if file doesn't exist
+    # trim = remove newline character at end of file content
     - name: Set idle environment
       set_fact:
         active_env: "{{ current_env.stdout | default('blue') | trim }}"
+        # if active is green → idle is blue, and vice versa
         idle_env: "{{ 'blue' if (current_env.stdout | default('blue') | trim) == 'green' else 'green' }}"
 
+    # Print to GitHub Actions logs so we can see what's happening
+    # Example output: "Active: blue | Deploying to: green"
     - name: Show environments
       debug:
         msg: "Active: {{ active_env }} | Deploying to: {{ idle_env }}"
 
+# ============================================================
+# PLAY 2 - Deploy new image to the idle environment
+# We deploy here BEFORE switching traffic - users are not affected yet
+# ============================================================
 - name: Deploy to idle environment
+  # Dynamically select which host to deploy to based on idle_env
+  # hostvars['edge-nginx'] = variables set on the edge-nginx host in PLAY 1
+  # ternary('x', 'y') = if condition is true → x, else → y
+  # idle_env == 'blue' → deploy to prod-vm1-BLUE
+  # idle_env == 'green' → deploy to prod-vm2-GREEN
   hosts: "{{ hostvars['edge-nginx']['idle_env'] == 'blue' | ternary('prod-vm1-BLUE', 'prod-vm2-GREEN') }}"
   become: true
   roles:
-    - app
+    - app                  # pull new Docker image, update .env, restart container
 
+# ============================================================
+# PLAY 3 - Smoke tests on idle environment
+# Test the new deployment DIRECTLY (bypassing nginx)
+# Traffic still flows to the active environment - users are not affected
+# ============================================================
 - name: Smoke tests on idle environment
   hosts: edge
   become: true
   tasks:
+
+    # Calculate the internal APP network IP of the idle VM
+    # blue_app_ip = 10.10.20.11 (from group_vars/all/main.yml)
+    # green_app_ip = 10.10.20.12 (from group_vars/all/main.yml)
     - name: Set idle IP
       set_fact:
         idle_ip: "{{ hostvars['edge-nginx']['idle_env'] == 'blue' | ternary(blue_app_ip, green_app_ip) }}"
 
+    # Hit the health endpoint directly on the idle VM's internal IP
+    # This bypasses nginx completely - we're testing the app directly
+    # retries: 5 with delay: 10 gives the app up to 50 seconds to become healthy
     - name: Smoke test - health check
       uri:
         url: "http://{{ idle_ip }}:3000/api/health"
-        status_code: 200
-      register: smoke
-      retries: 5
-      delay: 10
+        status_code: 200   # 200 = app is running and DB is connected
+      register: smoke      # save the response
+      retries: 5           # try up to 5 times
+      delay: 10            # wait 10 seconds between retries
 
     - name: Smoke test passed
       debug:
         msg: "✅ Smoke test passed on {{ hostvars['edge-nginx']['idle_env'] }}"
 
+# ============================================================
+# PLAY 4 - Switch nginx traffic to the new environment
+# Only runs if smoke tests passed
+# From this moment all user traffic goes to the new environment
+# ============================================================
 - name: Switch nginx traffic
   hosts: edge
   become: true
   tasks:
+
+    # Run the switch script with the idle environment name
+    # Example: /opt/switch-backend.sh green
+    # The script: updates upstream.conf, validates nginx config, reloads nginx
+    # Also writes the new active env to /opt/current-env for next deployment
     - name: Switch traffic to idle environment
       command: "/opt/switch-backend.sh {{ hostvars['edge-nginx']['idle_env'] }}"
 
     - name: Confirm switch
       debug:
         msg: "✅ Traffic switched to {{ hostvars['edge-nginx']['idle_env'] }}"
-        

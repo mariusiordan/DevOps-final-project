@@ -1,0 +1,16 @@
+---
+# playbooks/db-failover.yml
+# Emergency failover - switch app from primary DB to replica
+# Run when db-postgresql is down
+#
+# Usage:
+#   ansible-playbook playbooks/db-failover.yml
+
+- name: Switch app to use DB replica
+  hosts: prod
+  become: true
+  vars:
+    db_host: "10.10.20.21"   # replica IP - overrides group_vars/prod.yml
+  roles:
+    - app
+    

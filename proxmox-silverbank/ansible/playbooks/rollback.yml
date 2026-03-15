@@ -1,0 +1,88 @@
+---
+# playbooks/rollback.yml
+# Monitor the new environment for 10 minutes after traffic switch
+# If health checks fail 3 times in a row → automatically switch nginx back
+# This is the safety net after a Blue/Green deployment
+#
+# Usage (called automatically from deploy-production.yml):
+#   ansible-playbook playbooks/rollback.yml -e "new_env=green previous_env=blue"
+#
+# Flow:
+#   Every 30 seconds for 10 minutes:
+#     - Check /api/health on nginx (which now points to new environment)
+#     - If healthy → reset failure counter, keep monitoring
+#     - If unhealthy → increment failure counter
+#     - If 3 consecutive failures → switch nginx back to previous env → fail pipeline
+
+- name: Monitor and auto rollback if needed
+  hosts: edge              # runs on edge nginx VM - this is where we check and switch
+  become: true
+  vars:
+    monitor_duration: 600  # total monitoring time: 600 seconds = 10 minutes
+    check_interval: 30     # check health every 30 seconds
+    max_failures: 3        # how many consecutive failures before rollback
+                           # consecutive means: 3 failures in a row without a success in between
+                           # a single blip won't trigger rollback, but sustained failure will
+
+  tasks:
+    - name: Monitor new environment for 10 minutes
+      # block/rescue is Ansible's try/catch equivalent
+      # if any task inside 'block' fails → Ansible jumps to 'rescue'
+      block:
+        - name: Run health checks for {{ monitor_duration }}s
+          shell: |
+            failures=0    # counter for consecutive failures (resets on success)
+            elapsed=0     # total time elapsed in seconds
+
+            # Loop until we've monitored for the full duration
+            while [ $elapsed -lt {{ monitor_duration }} ]; do
+
+              # curl -sf = silent mode + fail on HTTP error codes
+              # > /dev/null 2>&1 = suppress all output (we only care about exit code)
+              # exit code 0 = success (HTTP 200), exit code 1 = failure
+              if curl -sf http://localhost/api/health > /dev/null 2>&1; then
+                echo "✅ [$elapsed s] Health check passed"
+                failures=0    # reset counter - consecutive streak is broken
+              else
+                failures=$((failures + 1))
+                echo "❌ [$elapsed s] Health check failed (failure $failures/{{ max_failures }})"
+
+                # If we've hit the consecutive failure threshold → trigger rollback
+                # exit 1 causes this shell task to fail
+                # Ansible then jumps to the 'rescue' block below
+                if [ $failures -ge {{ max_failures }} ]; then
+                  echo "ROLLBACK_NEEDED"
+                  exit 1
+                fi
+              fi
+
+              sleep {{ check_interval }}              # wait 30 seconds before next check
+              elapsed=$((elapsed + {{ check_interval }}))
+            done
+
+            # If we reach here, the full 10 minutes passed without enough failures
+            echo "✅ Monitoring complete - {{ new_env }} is stable"
+          register: monitor_result
+
+      # rescue block runs ONLY if something in the block above failed
+      # this is equivalent to the 'catch' in try/catch
+      rescue:
+        # Switch nginx back to the previous environment
+        # previous_env is passed as a variable: -e "previous_env=blue"
+        - name: "❌ Health checks failed - rolling back to {{ previous_env }}"
+          command: "/opt/switch-backend.sh {{ previous_env }}"
+          # This updates upstream.conf to point back to the previous environment
+          # and reloads nginx - users are back on the stable version
+
+        # Log what happened
+        - name: Confirm rollback
+          debug:
+            msg: "🔄 Rolled back to {{ previous_env }} after {{ max_failures }} consecutive failures"
+
+        # Explicitly fail the Ansible playbook
+        # Without this, Ansible would consider the rescue block a success
+        # We want GitHub Actions to mark this deployment as FAILED
+        # so the team knows the rollback happened
+        - name: Fail the pipeline
+          fail:
+            msg: "Deployment failed - rolled back to {{ previous_env }}"

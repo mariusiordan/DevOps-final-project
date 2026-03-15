@@ -1,25 +1,37 @@
 ---
 # playbooks/deploy-blue.yml
-# Deploy a new version to BLUE and switch nginx traffic to it
+# Manually deploy a new version to BLUE and switch nginx traffic to it
+# Used for manual rollback or when you explicitly want to deploy to BLUE
 #
 # Usage:
 #   ansible-playbook playbooks/deploy-blue.yml
-#   ansible-playbook playbooks/deploy-blue.yml -e "app_tag=v1.2"
+#   ansible-playbook playbooks/deploy-blue.yml -e "app_tag=sha-abc123"
 #
 # Flow:
 #   1. Deploy new image to BLUE VM
 #   2. Switch nginx to send traffic to BLUE
 #   3. GREEN stays running as fallback
 
+# PLAY 1 - Deploy the app to BLUE VM
+# Uses the 'app' role which: pulls the Docker image, creates .env, starts the container
+# app_tag variable comes from -e "app_tag=..." or defaults to value in group_vars/prod.yml
 - name: Deploy app to BLUE
-  hosts: prod-vm1-BLUE
-  become: true
+  hosts: prod-vm1-BLUE     # only runs on the BLUE VM (192.168.7.101)
+  become: true             # run tasks as sudo
   roles:
-    - app
+    - app                  # applies roles/app/tasks/main.yml
 
+# PLAY 2 - Switch nginx to send traffic to BLUE
+# Runs the switch-backend.sh script on the edge nginx VM
+# This updates /etc/nginx/conf.d/upstream.conf and reloads nginx
 - name: Switch nginx traffic to BLUE
-  hosts: edge
+  hosts: edge              # runs on edge-nginx VM (192.168.7.50)
   become: true
   tasks:
     - name: Switch to blue
       command: /opt/switch-backend.sh blue
+      # switch-backend.sh blue:
+      #   1. Writes "server 10.10.20.11:3000" to upstream.conf
+      #   2. Runs nginx -t to validate config
+      #   3. Runs systemctl reload nginx
+      #   4. Writes "blue" to /opt/current-env

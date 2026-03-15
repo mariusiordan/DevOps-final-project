@@ -19,7 +19,7 @@ services:
 
     ports:
       # Bind only to the internal APP network IP - not accessible from outside
-      - "{{ db_app_ip }}:{{ postgres_port }}:5432"
+      - "{{ hostvars[inventory_hostname]['ansible_eth1']['ipv4']['address'] }}:{{ postgres_port }}:5432"
 
     healthcheck:
       # Check if postgres is ready to accept connections

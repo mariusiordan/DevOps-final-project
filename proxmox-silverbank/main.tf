@@ -70,6 +70,26 @@ locals {
       app_ip  = "10.10.20.30"
       tags    = ["silverbank", "monitoring", "staging"]
     }
+    edge_backup = {
+      name    = "edge-backup"
+      vmid    = 851
+      cores   = 2
+      ram_mb  = 2048
+      disk_gb = 32
+      lan_ip  = "192.168.7.51"
+      app_ip  = "10.10.20.51"
+      tags    = ["silverbank", "edge-backup", "nginx-replica"]
+    }
+    db_replica = {
+      name    = "db-replica"
+      vmid    = 861
+      cores   = 2
+      ram_mb  = 4096
+      disk_gb = 32
+      lan_ip  = "192.168.7.61"
+      app_ip  = "10.10.20.21"
+      tags    = ["silverbank", "db-replica", "postgresql-16"]
+    }
   }
 }
 

@@ -36,14 +36,21 @@
   roles:
     - postgres
 
-# Step 5 - deploy app on staging VM for integration testing
+# Step 5 - set up the database replica
+- name: Configure database replica
+  hosts: db_replica
+  become: true
+  roles:
+    - postgres
+
+# Step 6 - deploy app on staging VM for integration testing
 - name: Configure staging app server
   hosts: monitoring
   become: true
   roles:
     - app
 
-# Step 6 - monitoring (commented out for now - will add later)
+# Step 7 - monitoring (commented out for now - will add later)
 # - name: Configure monitoring
 #   hosts: monitoring
 #   become: true

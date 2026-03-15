@@ -39,3 +39,34 @@
   command:
     cmd: docker compose up -d
     chdir: /opt/postgres  # run this command from the /opt/postgres folder
+
+# Wait for PostgreSQL to be ready before setting up sync
+# The container takes a few seconds to initialize on first run
+- name: Wait for PostgreSQL to be ready
+  wait_for:
+    port: "{{ postgres_port }}"   # 5432
+    delay: 10                      # wait 10 seconds before checking
+    timeout: 60  
+
+# Copy sync script to primary DB only
+- name: Create scripts directory
+  file:
+    path: /opt/scripts
+    state: directory
+    owner: "{{ docker_user }}"
+    group: "{{ docker_user }}"
+
+- name: Copy db-sync script
+  copy:
+    src: db-sync.sh
+    dest: /opt/scripts/db-sync.sh
+    owner: "{{ docker_user }}"
+    group: "{{ docker_user }}"
+    mode: "0755"
+
+- name: Setup cron for DB sync every 30 minutes
+  cron:
+    name: "DB sync to replica"
+    minute: "*/30"
+    job: "/opt/scripts/db-sync.sh >> /var/log/db-sync.log 2>&1"
+    user: "{{ docker_user }}"

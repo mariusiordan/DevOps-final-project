@@ -1,38 +1,54 @@
 ---
 # playbooks/deploy-staging.yml
-# Deploy a new version to Staging VM for integration testing
+# Deploy a new version to the Staging VM and verify it is healthy
+# Triggered automatically by staging.yml GitHub Actions workflow
+# on every push to the staging branch
 #
 # Usage:
 #   ansible-playbook playbooks/deploy-staging.yml -e "app_tag=sha-abc123"
 #
 # Flow:
 #   1. Deploy new image to stage-monitoring VM
-#   2. Health check to verify app is running
+#   2. Wait for the app container to start
+#   3. Health check to verify app and database are responding
 
+# PLAY 1 - Deploy the app to the staging VM
+# Uses the same 'app' role as blue/green but with variables from group_vars/monitoring.yml
+# This means staging uses app_tag: "staging" (pushed by the staging workflow)
 - name: Deploy app to Staging
-  hosts: monitoring
+  hosts: monitoring        # runs on stage-monitoring VM (192.168.7.70)
   become: true
   roles:
-    - app
+    - app                  # pulls Docker image, creates .env, starts container
 
+# PLAY 2 - Verify the staging deployment is healthy
+# We run these checks BEFORE integration tests to make sure the app is actually running
 - name: Verify staging deployment
   hosts: monitoring
   become: true
   tasks:
+
+    # The Docker container takes a few seconds to start after 'docker compose up'
+    # wait_for pauses Ansible until port 3000 is open and accepting connections
     - name: Wait for app to start
       wait_for:
-        port: 3000
-        delay: 10
-        timeout: 60
+        port: 3000         # the app listens on port 3000 (from group_vars/monitoring.yml)
+        delay: 10          # wait 10 seconds before starting to check
+        timeout: 60        # if port is not open after 60 seconds → fail the playbook
 
+    # Call the /api/health endpoint and expect HTTP 200
+    # If the app returns 503, it means the database is not connected
     - name: Health check
       uri:
         url: "http://{{ ansible_host }}:3000/api/health"
-        status_code: 200
-      register: health
-      retries: 3
-      delay: 5
+        # ansible_host is replaced with 192.168.7.70 from inventory.ini
+        status_code: 200   # anything other than 200 → fail
+      register: health     # save the HTTP response in the 'health' variable
+      retries: 3           # retry up to 3 times before failing
+      delay: 5             # wait 5 seconds between retries
 
+    # Print the health response so we can see it in the GitHub Actions logs
+    # health.json.status comes from our /api/health endpoint: { "status": "ok", ... }
     - name: Show health result
       debug:
         msg: "✅ Staging is healthy: {{ health.json.status }}"

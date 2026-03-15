@@ -2,7 +2,7 @@
 # Variables for staging VM (stage-monitoring)
 
 app_image: "ghcr.io/mariusiordan/silverbank"
-app_tag:   "staging"   # folosim tag-ul staging din ghcr.io
+app_tag:   "latest"   # folosim tag-ul staging din ghcr.io
 app_dir:   /opt/app
 app_port:  3000
 
