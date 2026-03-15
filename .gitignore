@@ -59,6 +59,7 @@ id_ed25519.*
 .env
 .env.*
 secrets.yml
+!.env.j2
 
 # Local SSH known_hosts overrides
 .known_hosts
