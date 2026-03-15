@@ -1,0 +1,14 @@
+# group_vars/monitoring.yml
+# Variables for staging VM (stage-monitoring)
+
+app_image: "ghcr.io/mariusiordan/silverbank"
+app_tag:   "staging"   # folosim tag-ul staging din ghcr.io
+app_dir:   /opt/app
+app_port:  3000
+
+# Același DB ca prod - staging folosește aceeași bază de date
+db_host:     "10.10.20.20"
+db_port:     5432
+db_name:     "appdb"
+db_user:     "{{ vault_db_user }}"
+db_password: "{{ vault_db_password }}"

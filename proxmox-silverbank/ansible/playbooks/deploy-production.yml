@@ -1,0 +1,68 @@
+---
+# playbooks/deploy-production.yml
+# Auto-detect idle environment, deploy, smoke test, switch traffic
+#
+# Usage:
+#   ansible-playbook playbooks/deploy-production.yml -e "app_tag=sha-abc123"
+#
+# Flow:
+#   1. Check which environment is active (blue or green)
+#   2. Deploy to idle environment
+#   3. Smoke tests on idle environment
+#   4. Switch nginx traffic to new environment
+
+- name: Detect active environment
+  hosts: edge
+  become: true
+  tasks:
+    - name: Read current active environment
+      command: cat /opt/current-env
+      register: current_env
+      failed_when: false
+
+    - name: Set idle environment
+      set_fact:
+        active_env: "{{ current_env.stdout | default('blue') | trim }}"
+        idle_env: "{{ 'blue' if (current_env.stdout | default('blue') | trim) == 'green' else 'green' }}"
+
+    - name: Show environments
+      debug:
+        msg: "Active: {{ active_env }} | Deploying to: {{ idle_env }}"
+
+- name: Deploy to idle environment
+  hosts: "{{ hostvars['edge-nginx']['idle_env'] == 'blue' | ternary('prod-vm1-BLUE', 'prod-vm2-GREEN') }}"
+  become: true
+  roles:
+    - app
+
+- name: Smoke tests on idle environment
+  hosts: edge
+  become: true
+  tasks:
+    - name: Set idle IP
+      set_fact:
+        idle_ip: "{{ hostvars['edge-nginx']['idle_env'] == 'blue' | ternary(blue_app_ip, green_app_ip) }}"
+
+    - name: Smoke test - health check
+      uri:
+        url: "http://{{ idle_ip }}:3000/api/health"
+        status_code: 200
+      register: smoke
+      retries: 5
+      delay: 10
+
+    - name: Smoke test passed
+      debug:
+        msg: "✅ Smoke test passed on {{ hostvars['edge-nginx']['idle_env'] }}"
+
+- name: Switch nginx traffic
+  hosts: edge
+  become: true
+  tasks:
+    - name: Switch traffic to idle environment
+      command: "/opt/switch-backend.sh {{ hostvars['edge-nginx']['idle_env'] }}"
+
+    - name: Confirm switch
+      debug:
+        msg: "✅ Traffic switched to {{ hostvars['edge-nginx']['idle_env'] }}"
+        
