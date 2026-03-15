@@ -57,7 +57,7 @@
   # ternary('x', 'y') = if condition is true → x, else → y
   # idle_env == 'blue' → deploy to prod-vm1-BLUE
   # idle_env == 'green' → deploy to prod-vm2-GREEN
-  hosts: "{{ hostvars['edge-nginx']['idle_env'] == 'blue' | ternary('prod-vm1-BLUE', 'prod-vm2-GREEN') }}"
+  hosts: "{{ 'prod-vm1-BLUE' if hostvars['edge-nginx']['idle_env'] == 'blue' else 'prod-vm2-GREEN' }}"
   become: true
   roles:
     - app                  # pull new Docker image, update .env, restart container

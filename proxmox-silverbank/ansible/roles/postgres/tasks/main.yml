@@ -44,6 +44,7 @@
 # The container takes a few seconds to initialize on first run
 - name: Wait for PostgreSQL to be ready
   wait_for:
+    host: "{{ db_app_ip }}"
     port: "{{ postgres_port }}"   # 5432
     delay: 10                      # wait 10 seconds before checking
     timeout: 60  
