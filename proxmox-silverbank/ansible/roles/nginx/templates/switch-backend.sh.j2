@@ -1,7 +1,7 @@
 #!/bin/bash
-# switch-backend.sh.j2
+# switch-backend.sh
 # Blue/Green deployment switch script
-# This script updates the nginx upstream config to point to blue or green
+# Switches BOTH frontend (3000) and backend API (4000) upstreams together
 #
 # Usage:
 #   sudo /opt/switch-backend.sh blue   - send traffic to BLUE
@@ -11,14 +11,12 @@
 NGINX_CONF="/etc/nginx/conf.d/upstream.conf"
 BLUE_IP="{{ blue_app_ip }}"
 GREEN_IP="{{ green_app_ip }}"
-PORT="{{ app_port }}"
-
 TARGET=${1:-""}
 
-# If no argument given - detect current and switch to the other one
+# If no argument - auto-detect current and switch to the other one
 if [ -z "$TARGET" ]; then
-    CURRENT=$(grep -v "^#" $NGINX_CONF | grep "server " | awk '{print $2}' | cut -d: -f1)
-    if [ "$CURRENT" = "$BLUE_IP" ]; then
+    CURRENT=$(cat /opt/current-env 2>/dev/null || echo "green")
+    if [ "$CURRENT" = "blue" ]; then
         TARGET="green"
     else
         TARGET="blue"
@@ -26,29 +24,49 @@ if [ -z "$TARGET" ]; then
 fi
 
 if [ "$TARGET" = "blue" ]; then
-    # Write new upstream config pointing to BLUE
-    cat > $NGINX_CONF <<EOF
-upstream app_backend {
-    server ${BLUE_IP}:${PORT};      # BLUE  - active
-    # server ${GREEN_IP}:${PORT};   # GREEN - inactive
+    cat > $NGINX_CONF << CONF
+# Blue/Green upstream - BLUE is active
+upstream app_frontend {
+    server ${BLUE_IP}:3000;      # BLUE frontend - active
+    # server ${GREEN_IP}:3000;   # GREEN frontend - inactive
 }
-EOF
-    echo "Switched to BLUE (${BLUE_IP})"
+
+upstream app_backend_api {
+    server ${BLUE_IP}:4000;      # BLUE backend API - active
+    # server ${GREEN_IP}:4000;   # GREEN backend API - inactive
+}
+CONF
+    echo "blue" | sudo tee /opt/current-env > /dev/null
+    echo "✅ Switched to BLUE (${BLUE_IP})"
 
 elif [ "$TARGET" = "green" ]; then
-    # Write new upstream config pointing to GREEN
-    cat > $NGINX_CONF <<EOF
-upstream app_backend {
-    # server ${BLUE_IP}:${PORT};    # BLUE  - inactive
-    server ${GREEN_IP}:${PORT};     # GREEN - active
+    cat > $NGINX_CONF << CONF
+# Blue/Green upstream - GREEN is active
+upstream app_frontend {
+    # server ${BLUE_IP}:3000;    # BLUE frontend - inactive
+    server ${GREEN_IP}:3000;     # GREEN frontend - active
 }
-EOF
-    echo "Switched to GREEN (${GREEN_IP})"
+
+upstream app_backend_api {
+    # server ${BLUE_IP}:4000;    # BLUE backend API - inactive
+    server ${GREEN_IP}:4000;     # GREEN backend API - active
+}
+CONF
+    echo "green" | sudo tee /opt/current-env > /dev/null
+    echo "✅ Switched to GREEN (${GREEN_IP})"
 
 else
     echo "Usage: $0 [blue|green]"
     exit 1
 fi
 
-# Test nginx config before reloading - safety check
+# Validate nginx config before reloading
 nginx -t && systemctl reload nginx
+
+if [ $? -eq 0 ]; then
+    echo "✅ Nginx reloaded successfully"
+    echo "[$TARGET] $(date)" >> /var/log/nginx/switches.log
+else
+    echo "❌ Nginx reload failed!"
+    exit 1
+fi
