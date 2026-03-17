@@ -2,7 +2,7 @@ locals {
   inventory = <<-EOT
   [edge]
   edge-nginx    ansible_host=192.168.7.50 ansible_user=${var.ci_user}
-  edge-backup   ansible_host=192.168.7.51 ansible_user=${var.ci_user}
+  # edge-backup   ansible_host=192.168.7.51 ansible_user=${var.ci_user}
 
   [prod]
   prod-vm1-BLUE  ansible_host=192.168.7.101 ansible_user=${var.ci_user}
@@ -12,7 +12,7 @@ locals {
   db-postgresql  ansible_host=192.168.7.60 ansible_user=${var.ci_user}
 
   [db_replica]
-  db-replica     ansible_host=192.168.7.61 ansible_user=${var.ci_user}
+  # db-replica     ansible_host=192.168.7.61 ansible_user=${var.ci_user}
 
   [monitoring]
   stage-monitoring ansible_host=192.168.7.70 ansible_user=${var.ci_user}
