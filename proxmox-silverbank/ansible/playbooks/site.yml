@@ -44,11 +44,18 @@
     - postgres
 
 # Step 6 - deploy app on staging VM for integration testing
-- name: Configure staging app server
+# - name: Configure staging app server
+#   hosts: monitoring
+#   become: true
+#   roles:
+#     - app
+
+# Configure nginx on staging VM
+- name: Configure nginx on staging
   hosts: monitoring
   become: true
   roles:
-    - app
+    - nginx
 
 # Step 7 - monitoring (commented out for now - will add later)
 # - name: Configure monitoring
