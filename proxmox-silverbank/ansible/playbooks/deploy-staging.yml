@@ -88,12 +88,16 @@
         JWT_SECRET: "{{ vault_jwt_secret }}"
 
     # Wait for DB container to be healthy (postgres takes longest to init)
-    - name: Wait for DB to be ready (30 seconds)
-      wait_for:
-        host: "{{ ansible_host }}"
-        port: 5432
-        delay: 10
-        timeout: 60
+    # Check DB is healthy via docker
+    - name: Wait for DB container to be healthy
+      become_user: "{{ docker_user }}"
+      command:
+        cmd: docker exec silverbank-db pg_isready -U appuser
+        chdir: "{{ app_dir }}"
+      register: db_ready
+      retries: 10
+      delay: 5
+      until: db_ready.rc == 0
 
     # Wait for backend Express server
     - name: Wait for backend to be ready

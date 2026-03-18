@@ -10,7 +10,7 @@ server {
     # API requests → backend Express container (port 4000)
     # Must be before location / to take priority
     location /api/ {
-        proxy_pass http://app_backend_api\;
+        proxy_pass http://app_backend_api;
         proxy_http_version 1.1;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
@@ -24,7 +24,7 @@ server {
 
     # All other requests → frontend Next.js container (port 3000)
     location / {
-        proxy_pass http://app_frontend\;
+        proxy_pass http://app_frontend;
         proxy_http_version 1.1;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
