@@ -92,7 +92,7 @@
     - name: Stop existing containers
       become_user: "{{ docker_user }}"
       command:
-        cmd: docker compose down
+        cmd: docker compose down --remove-orphans
         chdir: "{{ app_dir }}"
       ignore_errors: true
 
