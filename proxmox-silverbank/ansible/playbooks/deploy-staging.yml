@@ -127,4 +127,21 @@
     - name: Show health result
       debug:
         msg: "✅ Staging is healthy: {{ health.json.status }} | DB: {{ health.json.database }}"
-    
+    # Override nginx upstream to point to localhost containers
+    - name: Configure nginx upstream for staging
+      become: true
+      copy:
+        content: |
+          upstream app_frontend {
+              server 127.0.0.1:3000;
+          }
+          upstream app_backend_api {
+              server 127.0.0.1:4000;
+          }
+        dest: /etc/nginx/conf.d/upstream.conf
+
+    - name: Reload nginx
+      become: true
+      service:
+        name: nginx
+        state: reloaded
