@@ -2,10 +2,10 @@
 # playbooks/rollback.yml
 # Monitor the new environment for 10 minutes after traffic switch
 # If health checks fail 3 times in a row → automatically switch nginx back
-# This is the safety net after a Blue/Green deployment
+# If 10 minutes pass successfully → promote image to :latest (used by AWS DR)
 #
 # Usage (called automatically from deploy-production.yml):
-#   ansible-playbook playbooks/rollback.yml -e "new_env=green previous_env=blue"
+#   ansible-playbook playbooks/rollback.yml -e "new_env=green previous_env=blue app_tag=v1.0-prod-2026-03-19-sha-abc123"
 #
 # Flow:
 #   Every 30 seconds for 10 minutes:
@@ -13,76 +13,73 @@
 #     - If healthy → reset failure counter, keep monitoring
 #     - If unhealthy → increment failure counter
 #     - If 3 consecutive failures → switch nginx back to previous env → fail pipeline
+#   After 10 minutes stable → promote app_tag to :latest on ghcr.io
 
 - name: Monitor and auto rollback if needed
-  hosts: edge              # runs on edge nginx VM - this is where we check and switch
+  hosts: edge-nginx
   become: true
   vars:
-    monitor_duration: 600  # total monitoring time: 600 seconds = 10 minutes
-    check_interval: 30     # check health every 30 seconds
-    max_failures: 3        # how many consecutive failures before rollback
-                           # consecutive means: 3 failures in a row without a success in between
-                           # a single blip won't trigger rollback, but sustained failure will
+    monitor_duration: 600  # 10 minutes
+    check_interval: 30     # check every 30 seconds
+    max_failures: 3        # consecutive failures before rollback
 
   tasks:
     - name: Monitor new environment for 10 minutes
-      # block/rescue is Ansible's try/catch equivalent
-      # if any task inside 'block' fails → Ansible jumps to 'rescue'
       block:
         - name: Run health checks for {{ monitor_duration }}s
           shell: |
-            failures=0    # counter for consecutive failures (resets on success)
-            elapsed=0     # total time elapsed in seconds
+            failures=0
+            elapsed=0
 
-            # Loop until we've monitored for the full duration
             while [ $elapsed -lt {{ monitor_duration }} ]; do
-
-              # curl -sf = silent mode + fail on HTTP error codes
-              # > /dev/null 2>&1 = suppress all output (we only care about exit code)
-              # exit code 0 = success (HTTP 200), exit code 1 = failure
               if curl -sf http://localhost/api/health > /dev/null 2>&1; then
                 echo "✅ [$elapsed s] Health check passed"
-                failures=0    # reset counter - consecutive streak is broken
+                failures=0
               else
                 failures=$((failures + 1))
                 echo "❌ [$elapsed s] Health check failed (failure $failures/{{ max_failures }})"
 
-                # If we've hit the consecutive failure threshold → trigger rollback
-                # exit 1 causes this shell task to fail
-                # Ansible then jumps to the 'rescue' block below
                 if [ $failures -ge {{ max_failures }} ]; then
                   echo "ROLLBACK_NEEDED"
                   exit 1
                 fi
               fi
 
-              sleep {{ check_interval }}              # wait 30 seconds before next check
+              sleep {{ check_interval }}
               elapsed=$((elapsed + {{ check_interval }}))
             done
 
-            # If we reach here, the full 10 minutes passed without enough failures
             echo "✅ Monitoring complete - {{ new_env }} is stable"
           register: monitor_result
 
-      # rescue block runs ONLY if something in the block above failed
-      # this is equivalent to the 'catch' in try/catch
+        # ============================================================
+        # 10 minutes passed without failures → promote to :latest
+        # This means AWS DR will use this confirmed stable version
+        # ============================================================
+        - name: "✅ Deployment stable - promoting {{ app_tag }} to latest"
+          become_user: "{{ docker_user }}"
+          shell: |
+            echo "{{ vault_ghcr_token }}" | docker login ghcr.io -u mariusiordan --password-stdin
+
+            docker buildx imagetools create \
+              -t ghcr.io/mariusiordan/silverbank-frontend:latest \
+              ghcr.io/mariusiordan/silverbank-frontend:{{ app_tag }}
+
+            docker buildx imagetools create \
+              -t ghcr.io/mariusiordan/silverbank-backend:latest \
+              ghcr.io/mariusiordan/silverbank-backend:{{ app_tag }}
+
+            echo "✅ Promoted {{ app_tag }} to :latest - AWS DR ready"
+          when: app_tag is defined
+
       rescue:
-        # Switch nginx back to the previous environment
-        # previous_env is passed as a variable: -e "previous_env=blue"
         - name: "❌ Health checks failed - rolling back to {{ previous_env }}"
           command: "/opt/switch-backend.sh {{ previous_env }}"
-          # This updates upstream.conf to point back to the previous environment
-          # and reloads nginx - users are back on the stable version
 
-        # Log what happened
         - name: Confirm rollback
           debug:
-            msg: "🔄 Rolled back to {{ previous_env }} after {{ max_failures }} consecutive failures"
+            msg: "🔄 Rolled back to {{ previous_env }} after {{ max_failures }} consecutive failures. :latest NOT updated."
 
-        # Explicitly fail the Ansible playbook
-        # Without this, Ansible would consider the rescue block a success
-        # We want GitHub Actions to mark this deployment as FAILED
-        # so the team knows the rollback happened
         - name: Fail the pipeline
           fail:
-            msg: "Deployment failed - rolled back to {{ previous_env }}"
+            msg: "Deployment failed - rolled back to {{ previous_env }} - :latest remains previous stable version"

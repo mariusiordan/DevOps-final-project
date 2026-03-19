@@ -161,3 +161,72 @@
     - name: Confirm switch
       debug:
         msg: "✅ Traffic switched to {{ hostvars['edge-nginx']['idle_env'] }}"
+
+# ============================================================
+# PLAY 5 - Monitor 10 minutes + promote to :latest if stable
+# ============================================================
+- name: Monitor and auto rollback if needed
+  hosts: edge-nginx
+  become: true
+  vars:
+    monitor_duration: 600
+    check_interval: 30
+    max_failures: 3
+    new_env: "{{ hostvars['edge-nginx']['idle_env'] }}"
+    previous_env: "{{ hostvars['edge-nginx']['active_env'] }}"
+
+  tasks:
+    - name: Monitor new environment for 10 minutes
+      block:
+        - name: Run health checks for {{ monitor_duration }}s
+          shell: |
+            failures=0
+            elapsed=0
+
+            while [ $elapsed -lt {{ monitor_duration }} ]; do
+              if curl -sf http://localhost/api/health > /dev/null 2>&1; then
+                echo "✅ [$elapsed s] Health check passed"
+                failures=0
+              else
+                failures=$((failures + 1))
+                echo "❌ [$elapsed s] Health check failed (failure $failures/{{ max_failures }})"
+                if [ $failures -ge {{ max_failures }} ]; then
+                  echo "ROLLBACK_NEEDED"
+                  exit 1
+                fi
+              fi
+
+              sleep {{ check_interval }}
+              elapsed=$((elapsed + {{ check_interval }}))
+            done
+
+            echo "✅ Monitoring complete - stable"
+          register: monitor_result
+
+        - name: "✅ Stable - promoting {{ app_tag }} to latest"
+          become_user: "{{ docker_user }}"
+          shell: |
+            echo "{{ vault_ghcr_token }}" | docker login ghcr.io -u mariusiordan --password-stdin
+
+            docker buildx imagetools create \
+              -t ghcr.io/mariusiordan/silverbank-frontend:latest \
+              ghcr.io/mariusiordan/silverbank-frontend:{{ app_tag }}
+
+            docker buildx imagetools create \
+              -t ghcr.io/mariusiordan/silverbank-backend:latest \
+              ghcr.io/mariusiordan/silverbank-backend:{{ app_tag }}
+
+            echo "✅ Promoted {{ app_tag }} to :latest - AWS DR ready"
+          when: app_tag is defined
+
+      rescue:
+        - name: "❌ Rolling back to {{ previous_env }}"
+          command: "/opt/switch-backend.sh {{ previous_env }}"
+
+        - name: Confirm rollback
+          debug:
+            msg: "🔄 Rolled back to {{ previous_env }} - :latest NOT updated"
+
+        - name: Fail the pipeline
+          fail:
+            msg: "Deployment failed - rolled back - :latest remains previous stable version"
