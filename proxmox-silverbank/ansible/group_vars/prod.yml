@@ -2,15 +2,15 @@
 # Variables only available to the [prod] group (blue and green VMs)
 # Update app_image with your actual Docker image before deploying
 
-app_image: "ghcr.io/mariusiordan/silverbank"  # ← real Docker image name
-app_tag:   "v1.2"                              # ← version tag for the Docker image, e.g., "v1.0" or "latest"
-app_dir:   /opt/app
-app_port:  3000                                # 
+frontend_image: "ghcr.io/mariusiordan/silverbank-frontend"
+backend_image:  "ghcr.io/mariusiordan/silverbank-backend"
+app_tag:        "latest"   # override din pipeline cu -e app_tag=v1.0-prod-...
+app_dir:        /opt/app
+app_port_frontend: 3000
+app_port_backend:  4000
 
-# Database connection - uses internal APP network (vmbr1)
-# These values must match what is in group_vars/db.yml
-db_host:     "10.10.20.20"  # db VM internal IP
+db_host:     "10.10.20.20"
 db_port:     5432
 db_name:     "appdb"
 db_user:     "{{ vault_db_user }}"
-db_password: "{{ vault_db_password }}"     # must match postgres_password in db.yml
+db_password: "{{ vault_db_password }}"
