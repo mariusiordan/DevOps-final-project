@@ -48,9 +48,17 @@
   args:
     stdin: "{{ vault_ghcr_token }}"
 
+# Stop and remove existing containers (including orphans from previous deploys)
+- name: Stop existing containers
+  become_user: "{{ docker_user }}"
+  command:
+    cmd: docker compose down --remove-orphans
+    chdir: "{{ app_dir }}"
+  ignore_errors: true  # ok if nothing is running
+
 # Start the app container
 - name: Start app container
   become_user: "{{ docker_user }}"
   command:
-    cmd: docker compose up -d --pull always  # always pull latest image
+    cmd: docker compose up -d --pull always --remove-orphans
     chdir: "{{ app_dir }}"
