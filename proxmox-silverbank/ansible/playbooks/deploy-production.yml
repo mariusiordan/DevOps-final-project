@@ -169,7 +169,7 @@
   hosts: edge-nginx
   become: true
   vars:
-    monitor_duration: 600
+    monitor_duration: 120
     check_interval: 30
     max_failures: 3
     new_env: "{{ hostvars['edge-nginx']['idle_env'] }}"
