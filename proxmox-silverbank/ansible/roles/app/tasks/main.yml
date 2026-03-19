@@ -3,14 +3,21 @@
 # This role runs on BLUE and GREEN VMs
 # The app (Node.js + React) runs inside a Docker container
 
-# Only allow traffic on app port from nginx (10.10.20.10)
-# This means only our edge-nginx VM can reach the app
-- name: Allow app port from nginx only
+# Only allow traffic on frontend port from nginx (10.10.20.10)
+- name: Allow frontend port from nginx only
   ufw:
     rule: allow
-    port: "{{ app_port }}"
+    port: "3000"
     proto: tcp
-    src: "10.10.20.10"  # edge-nginx internal APP IP
+    src: "10.10.20.10"
+
+# Only allow traffic on backend port from nginx (10.10.20.10)
+- name: Allow backend port from nginx only
+  ufw:
+    rule: allow
+    port: "4000"
+    proto: tcp
+    src: "10.10.20.10"
 
 # Create the folder where docker-compose and .env will live
 - name: Create app directory
