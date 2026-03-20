@@ -4,14 +4,14 @@
 # PostgreSQL runs inside a Docker container
 # Data is stored on the VM at /opt/postgres/data so it survives container restarts
 
-# Only allow database connections from the internal APP network
-# This means only blue and green VMs can connect to the database
-- name: Allow PostgreSQL only from APP network
+# On AWS, Security Groups handle network isolation between VMs
+# UFW allows PostgreSQL from the entire private subnet (10.0.2.0/24)
+- name: Allow PostgreSQL from private subnet
   ufw:
     rule: allow
     port: "{{ postgres_port }}"
     proto: tcp
-    src: "10.10.20.0/24"  # only the internal APP network (vmbr1)
+    src: "10.0.2.0/24"  # AWS private subnet - only prod VM can reach DB
 
 # Create the folders needed for postgres
 - name: Create postgres directories

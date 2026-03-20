@@ -1,54 +1,45 @@
 ---
 # nginx/tasks/main.yml
-# This role runs on the edge VM only (192.168.7.50)
-# Nginx acts as a reverse proxy - it receives traffic and forwards it
-# to either the BLUE or GREEN production server
+# Runs on edge-nginx VM (AWS DR environment)
+# Nginx acts as a reverse proxy forwarding traffic to the single prod VM
 
-# Open port 80 (HTTP) in the firewall
 - name: Allow HTTP through firewall
   ufw:
     rule: allow
     port: "80"
     proto: tcp
 
-# Open port 443 (HTTPS) in the firewall
-# - name: Allow HTTPS through firewall
+# - name: Allow HTTPS through firewall (planned - SSL not yet configured)
 #   ufw:
 #     rule: allow
 #     port: "443"
 #     proto: tcp
 
-# Install nginx from apt
 - name: Install Nginx
   apt:
     name: nginx
     state: present
     update_cache: yes
 
-# Make sure nginx starts automatically when the VM reboots
 - name: Enable and start Nginx
   systemd:
     name: nginx
     enabled: yes
     state: started
 
-# Deploy the upstream config - this tells nginx WHERE to send traffic
-# By default traffic goes to BLUE (10.10.20.11)
-# To switch to GREEN we run the switch-backend.sh script
+# Static upstream config — single prod VM, no Blue/Green on DR
 - name: Deploy upstream config
   template:
     src: upstream.conf.j2
     dest: /etc/nginx/conf.d/upstream.conf
-  notify: reload nginx  # reload nginx if this file changes
+  notify: reload nginx
 
-# Deploy the main site config - proxy settings, headers, timeouts
 - name: Deploy site config
   template:
     src: app.conf.j2
     dest: /etc/nginx/sites-available/app.conf
   notify: reload nginx
 
-# Enable the site by creating a symlink
 - name: Enable site
   file:
     src: /etc/nginx/sites-available/app.conf
@@ -56,17 +47,8 @@
     state: link
   notify: reload nginx
 
-# Remove the default nginx page so our app shows instead
 - name: Remove default nginx site
   file:
     path: /etc/nginx/sites-enabled/default
     state: absent
   notify: reload nginx
-
-# Deploy the blue/green switch script
-# Usage: sudo /opt/switch-backend.sh blue  or  green
-- name: Deploy blue/green switch script
-  template:
-    src: switch-backend.sh.j2
-    dest: /opt/switch-backend.sh
-    mode: "0755"  # make it executable

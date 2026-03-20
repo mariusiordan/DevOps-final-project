@@ -18,8 +18,8 @@ services:
       - {{ postgres_data_dir }}:/var/lib/postgresql/data
 
     ports:
-      # Bind only to the internal APP network IP - not accessible from outside
-      - "{{ db_app_ip }}:{{ postgres_port }}:5432"
+      # Listen on all interfaces - AWS Security Groups restrict access to prod VM only
+      - "{{ postgres_port }}:5432"
 
     healthcheck:
       # Check if postgres is ready to accept connections

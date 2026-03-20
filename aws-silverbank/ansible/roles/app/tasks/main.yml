@@ -1,18 +1,18 @@
 ---
-# app/tasks/main.yml
-# This role runs on BLUE and GREEN VMs
-# The app (Node.js + React) runs inside a Docker container
-
-# Only allow traffic on app port from nginx (10.10.20.10)
-# This means only our edge-nginx VM can reach the app
-- name: Allow app port from nginx only
+- name: Allow frontend port from nginx only
   ufw:
     rule: allow
-    port: "{{ app_port }}"
+    port: "3000"
     proto: tcp
-    src: "10.10.20.10"  # edge-nginx internal APP IP
+    src: "{{ blue_app_ip }}"
 
-# Create the folder where docker-compose and .env will live
+- name: Allow backend port from nginx only
+  ufw:
+    rule: allow
+    port: "4000"
+    proto: tcp
+    src: "{{ blue_app_ip }}"
+
 - name: Create app directory
   file:
     path: "{{ app_dir }}"
@@ -20,7 +20,6 @@
     owner: "{{ docker_user }}"
     group: "{{ docker_user }}"
 
-# Copy docker-compose.yml with our app settings
 - name: Deploy docker-compose file
   template:
     src: docker-compose.yml.j2
@@ -28,8 +27,6 @@
     owner: "{{ docker_user }}"
     group: "{{ docker_user }}"
 
-# Copy .env file with database connection and other settings
-# mode 0600 = only the owner can read it (keeps secrets safe)
 - name: Deploy .env file
   template:
     src: .env.j2
@@ -38,9 +35,7 @@
     group: "{{ docker_user }}"
     mode: "0600"
 
-# Login to GitHub Container Registry to pull private images
 - name: Login to GitHub Container Registry
-  become: yes
   become_user: "{{ docker_user }}"
   command: >
     docker login ghcr.io
@@ -49,10 +44,15 @@
   args:
     stdin: "{{ vault_ghcr_token }}"
 
-# Start the app container
-- name: Start app container
-  become: yes
+- name: Stop existing containers
   become_user: "{{ docker_user }}"
   command:
-    cmd: docker compose up -d --pull always  # always pull latest image
+    cmd: docker compose down --remove-orphans
+    chdir: "{{ app_dir }}"
+  ignore_errors: true
+
+- name: Start app containers
+  become_user: "{{ docker_user }}"
+  command:
+    cmd: docker compose up -d --pull always --remove-orphans
     chdir: "{{ app_dir }}"

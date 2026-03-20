@@ -1,9 +1,11 @@
 # upstream.conf.j2
-# This file tells nginx where to send incoming traffic
-# Only ONE server should be active at a time (blue/green deployment)
-# To switch traffic: run /opt/switch-backend.sh green (or blue)
+# AWS DR environment - single prod VM, no Blue/Green
+# Traffic goes directly to prod VM on internal private IP
 
-upstream app_backend {
-    server {{ blue_app_ip }}:{{ app_port }};      # BLUE  - active
-    # server {{ green_app_ip }}:{{ app_port }};   # GREEN - inactive (commented out)
+upstream app_frontend {
+    server {{ blue_app_ip }}:3000;
+}
+
+upstream app_backend_api {
+    server {{ blue_app_ip }}:4000;
 }

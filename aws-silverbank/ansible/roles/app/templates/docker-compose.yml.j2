@@ -1,21 +1,32 @@
-# app/templates/docker-compose.yml.j2
-# Docker Compose file for the Node.js + React application
-
 services:
-  app:
-    image: {{ app_image }}:{{ app_tag }}  # image and tag come from group_vars/prod.yml
-    container_name: app
-    restart: unless-stopped  # restart automatically on crash or VM reboot
-
-    env_file: .env  # load environment variables from .env file
-
+  frontend:
+    image: {{ frontend_image }}:{{ app_tag }}
+    container_name: silverbank-frontend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - PORT=3000
     ports:
-      - "{{ app_port }}:{{ app_port }}"  # expose app port to the VM
-
+      - "3000:3000"
     healthcheck:
-      # Check if the app is responding on the health endpoint
-      test: ["CMD", "curl", "-f", "http://localhost:{{ app_port }}/health"]
-      interval: 30s       # check every 30 seconds
-      timeout: 10s        # wait max 10 seconds
-      retries: 3          # mark as unhealthy after 3 failures
-      start_period: 40s   # give the app 40 seconds to start up before checking
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  backend:
+    image: {{ backend_image }}:{{ app_tag }}
+    container_name: silverbank-backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - PORT=4000
+    ports:
+      - "4000:4000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

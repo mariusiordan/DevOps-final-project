@@ -129,6 +129,18 @@ resource "aws_security_group" "edge" {
   tags = { Name = "silverbank-edge-sg" }
 }
 
+# Elastic IP for edge nginx
+# Static IP that persists across terraform destroy/apply cycles
+# Used by GitHub Actions to check if AWS DR is active
+resource "aws_eip" "edge" {
+  instance = aws_instance.edge.id
+  domain   = "vpc"
+
+  tags = {
+    Name = "silverbank-edge-eip"
+  }
+}
+
 # App VMs (blue + green) - accepts traffic from nginx and SSH from edge only
 resource "aws_security_group" "app" {
   name        = "silverbank-app"
@@ -140,6 +152,15 @@ resource "aws_security_group" "app" {
     description     = "App port from nginx"
     from_port       = 3000
     to_port         = 3000
+    protocol        = "tcp"
+    security_groups = [aws_security_group.edge.id]
+  }
+
+  # Backend API port from nginx edge only
+  ingress {
+    description     = "Backend API port from nginx"
+    from_port       = 4000
+    to_port         = 4000
     protocol        = "tcp"
     security_groups = [aws_security_group.edge.id]
   }
@@ -234,21 +255,21 @@ resource "aws_instance" "blue" {
   tags = { Name = "prod-vm1-BLUE" }
 }
 
-# Prod GREEN - private subnet
-resource "aws_instance" "green" {
-  ami                    = data.aws_ami.ubuntu.id
-  instance_type          = var.instance_type_app
-  key_name               = aws_key_pair.silverbank.key_name
-  subnet_id              = aws_subnet.private.id
-  vpc_security_group_ids = [aws_security_group.app.id]
+# Prod GREEN - private subnet - temporary stoped to save costs, can be re-enabled for blue-green testing
+# resource "aws_instance" "green" {
+#   ami                    = data.aws_ami.ubuntu.id
+#   instance_type          = var.instance_type_app
+#   key_name               = aws_key_pair.silverbank.key_name
+#   subnet_id              = aws_subnet.private.id
+#   vpc_security_group_ids = [aws_security_group.app.id]
 
-  root_block_device {
-    volume_size = 20
-    volume_type = "gp3"
-  }
+#   root_block_device {
+#     volume_size = 20
+#     volume_type = "gp3"
+#   }
 
-  tags = { Name = "prod-vm2-GREEN" }
-}
+#   tags = { Name = "prod-vm2-GREEN" }
+# }
 
 # Database PostgreSQL - private subnet
 resource "aws_instance" "db" {
