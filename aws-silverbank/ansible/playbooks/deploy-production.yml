@@ -18,7 +18,9 @@
   hosts: prod
   become: true
   vars:
-    app_tag: "latest"  # override with -e app_tag=<tag> if needed
+    app_tag: "latest"
+    app_dir: /opt/app        #
+    docker_user: ubuntu      #
   tasks:
     - name: Deploy updated docker-compose file
       template:
