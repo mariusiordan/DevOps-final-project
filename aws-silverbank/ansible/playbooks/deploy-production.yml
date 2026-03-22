@@ -40,6 +40,11 @@
       args:
         stdin: "{{ vault_ghcr_token }}"
 
+    - name: Clean up unused Docker images
+      become_user: "{{ docker_user }}"
+      command: docker system prune -f
+      ignore_errors: true
+
     - name: Pull latest images
       become_user: "{{ docker_user }}"
       command:
