@@ -1,13 +1,12 @@
 # group_vars/monitoring.yml
-# Variables for staging VM (stage-monitoring)
-
 app_image: "ghcr.io/mariusiordan/silverbank"
-app_tag:   "latest"   # folosim tag-ul staging din ghcr.io
+app_tag:   "staging"
 app_dir:   /opt/app
-app_port:  3000
+app_port_frontend: 3000
+app_port_backend:  4000
 
-# Același DB ca prod - staging folosește aceeași bază de date
-db_host:     "10.10.20.20"
+# Staging uses local PostgreSQL container - completely isolated from production
+db_host:     "db"           # local container, NOT production DB
 db_port:     5432
 db_name:     "appdb"
 db_user:     "{{ vault_db_user }}"

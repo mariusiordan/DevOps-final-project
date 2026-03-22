@@ -23,6 +23,10 @@
   vars:
     app_dir: /opt/app
     app_tag: "{{ app_tag | default('staging') }}"
+    # Override DB to use local container - staging must NOT touch production DB
+    db_host:     "db"        # local docker container name
+    db_port:     5432
+    db_name:     "appdb"
 
   tasks:
 
