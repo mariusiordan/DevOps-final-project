@@ -76,6 +76,20 @@
       args:
         stdin: "{{ vault_ghcr_token }}"
 
+    - name: Stop existing containers
+      become_user: "{{ docker_user }}"
+      command:
+        cmd: docker compose down --remove-orphans
+        chdir: "{{ app_dir }}"
+      ignore_errors: true
+
+    # Clean up unused Docker images to prevent disk space issues
+    # Uses -f without -a to preserve images used by the active environment
+    - name: Clean up unused Docker images
+      become_user: "{{ docker_user }}"
+      command: docker system prune -f
+      ignore_errors: true
+
     - name: Pull new images
       become_user: "{{ docker_user }}"
       command:
