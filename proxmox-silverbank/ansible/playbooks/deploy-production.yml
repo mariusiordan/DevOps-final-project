@@ -169,7 +169,7 @@
   hosts: edge-nginx
   become: true
   vars:
-    monitor_duration: 120
+    monitor_duration: 30 # minutes to monitor before promoting to :latest - adjust as needed based on app behavior and traffic patterns
     check_interval: 30
     max_failures: 3
     new_env: "{{ hostvars['edge-nginx']['idle_env'] }}"
