@@ -16,6 +16,7 @@
   vars:
     app_dir: /opt/app
     app_tag: "{{ app_tag | default('latest') }}"
+    deploy_env: "{{ idle_env }}"  # blue sau green
 
   tasks:
 
