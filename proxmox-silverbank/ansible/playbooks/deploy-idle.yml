@@ -1,0 +1,102 @@
+---
+# playbooks/deploy-idle.yml
+# Deploys frontend + backend to the idle environment
+# Called by GitHub Actions deploy.yml after manual approval
+# Traffic continues to flow to the active environment during this step
+#
+# Usage:
+#   ansible-playbook playbooks/deploy-idle.yml \
+#     -e "app_tag=v1.0-prod-2026-03-22-sha-abc123" \
+#     -e "idle_env=blue" \
+#     -i inventory.ini
+
+- name: Deploy to idle environment
+  hosts: "{{ 'prod-vm1-BLUE' if idle_env == 'blue' else 'prod-vm2-GREEN' }}"
+  become: true
+  vars:
+    app_dir: /opt/app
+    app_tag: "{{ app_tag | default('latest') }}"
+
+  tasks:
+
+    - name: Create app directory
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ docker_user }}"
+        group: "{{ docker_user }}"
+
+    - name: Deploy .env file
+      template:
+        src: ../roles/app/templates/.env.j2
+        dest: "{{ app_dir }}/.env"
+        owner: "{{ docker_user }}"
+        group: "{{ docker_user }}"
+        mode: "0600"
+
+    - name: Copy docker-compose.prod.yml
+      copy:
+        src: ../files/docker-compose.prod.yml
+        dest: "{{ app_dir }}/docker-compose.yml"
+        owner: "{{ docker_user }}"
+        group: "{{ docker_user }}"
+
+    - name: Login to GitHub Container Registry
+      become_user: "{{ docker_user }}"
+      command: docker login ghcr.io -u mariusiordan --password-stdin
+      args:
+        stdin: "{{ vault_ghcr_token }}"
+
+    - name: Stop existing containers
+      become_user: "{{ docker_user }}"
+      command:
+        cmd: docker compose down --remove-orphans
+        chdir: "{{ app_dir }}"
+      ignore_errors: true
+
+    # Clean up unused Docker images to prevent disk space issues
+    # Uses -f without -a to preserve images used by the active environment
+    - name: Clean up unused Docker images
+      become_user: "{{ docker_user }}"
+      command: docker system prune -f
+      ignore_errors: true
+
+    - name: Pull new images
+      become_user: "{{ docker_user }}"
+      command:
+        cmd: docker compose pull
+        chdir: "{{ app_dir }}"
+      environment:
+        APP_TAG: "{{ app_tag }}"
+        DB_USER: "{{ vault_db_user }}"
+        DB_PASSWORD: "{{ vault_db_password }}"
+        DB_HOST: "{{ db_host }}"
+        DB_NAME: "{{ db_name }}"
+        JWT_SECRET: "{{ vault_jwt_secret }}"
+
+    - name: Start frontend + backend containers
+      become_user: "{{ docker_user }}"
+      command:
+        cmd: docker compose up -d
+        chdir: "{{ app_dir }}"
+      environment:
+        APP_TAG: "{{ app_tag }}"
+        DB_USER: "{{ vault_db_user }}"
+        DB_PASSWORD: "{{ vault_db_password }}"
+        DB_HOST: "{{ db_host }}"
+        DB_NAME: "{{ db_name }}"
+        JWT_SECRET: "{{ vault_jwt_secret }}"
+
+    - name: Wait for backend to be ready
+      wait_for:
+        host: "{{ ansible_host }}"
+        port: 4000
+        delay: 10
+        timeout: 90
+
+    - name: Wait for frontend to be ready
+      wait_for:
+        host: "{{ ansible_host }}"
+        port: 3000
+        delay: 5
+        timeout: 60

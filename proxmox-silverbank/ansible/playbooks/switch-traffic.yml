@@ -1,0 +1,21 @@
+---
+# playbooks/switch-traffic.yml
+# Switches nginx traffic to the new environment
+# Called by GitHub Actions after smoke tests pass
+#
+# Usage:
+#   ansible-playbook playbooks/switch-traffic.yml \
+#     -e "idle_env=blue" \
+#     -i inventory.ini
+
+- name: Switch nginx traffic to new environment
+  hosts: edge-nginx
+  become: true
+  tasks:
+
+    - name: Switch traffic to new environment
+      command: "/opt/switch-backend.sh {{ idle_env }}"
+
+    - name: Confirm traffic switch
+      debug:
+        msg: "✅ Traffic switched to {{ idle_env }}"

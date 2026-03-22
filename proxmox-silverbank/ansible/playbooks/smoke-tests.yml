@@ -1,0 +1,31 @@
+---
+# playbooks/smoke-tests.yml
+# Runs health checks directly on the idle environment bypassing nginx
+# Traffic still flows to the active environment during this step
+# If smoke tests fail - deployment stops, no traffic switch occurs
+#
+# Usage:
+#   ansible-playbook playbooks/smoke-tests.yml \
+#     -e "idle_env=blue" \
+#     -i inventory.ini
+
+- name: Smoke tests on idle environment
+  hosts: edge-nginx
+  become: true
+  tasks:
+
+    - name: Set idle IP
+      set_fact:
+        idle_ip: "{{ blue_app_ip if idle_env == 'blue' else green_app_ip }}"
+
+    - name: Smoke test - backend health check
+      uri:
+        url: "http://{{ idle_ip }}:4000/api/health"
+        status_code: 200
+      register: smoke
+      retries: 5
+      delay: 10
+
+    - name: Smoke test passed
+      debug:
+        msg: "✅ Smoke test passed on {{ idle_env }} - DB: {{ smoke.json.database }}"
