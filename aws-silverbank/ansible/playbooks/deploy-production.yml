@@ -19,8 +19,10 @@
   become: true
   vars:
     app_tag: "latest"
-    app_dir: /opt/app        #
-    docker_user: ubuntu      #
+    app_dir: /opt/app
+    docker_user: ubuntu
+    frontend_image: "ghcr.io/mariusiordan/silverbank-frontend"
+    backend_image:  "ghcr.io/mariusiordan/silverbank-backend"
   tasks:
     - name: Deploy updated docker-compose file
       template:
