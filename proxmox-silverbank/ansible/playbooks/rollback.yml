@@ -15,11 +15,13 @@
 #     - If 3 consecutive failures → switch nginx back to previous env → fail pipeline
 #   After 10 minutes stable → promote app_tag to :latest on ghcr.io
 
+# Usage (called automatically from deploy.yml GitHub Actions workflow):
+
 - name: Monitor and auto rollback if needed
   hosts: edge-nginx
   become: true
   vars:
-    monitor_duration: 600  # 10 minutes
+    monitor_duration: 60  # 10 minutes
     check_interval: 30     # check every 30 seconds
     max_failures: 3        # consecutive failures before rollback
 
