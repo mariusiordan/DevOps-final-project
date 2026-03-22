@@ -58,6 +58,12 @@
       args:
         stdin: "{{ vault_ghcr_token }}"
 
+    # Clean up unused Docker images to prevent disk space issues
+    - name: Clean up unused Docker images
+      become_user: "{{ docker_user }}"
+      command: docker system prune -f
+      ignore_errors: true  # ok if nothing to clean
+
     # Pull images first - before starting anything
     # This avoids timeout issues when containers start
     - name: Pull all Docker images
