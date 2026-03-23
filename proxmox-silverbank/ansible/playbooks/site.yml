@@ -58,8 +58,8 @@
     - nginx
 
 # Step 7 - monitoring (commented out for now - will add later)
-# - name: Configure monitoring
-#   hosts: monitoring
-#   become: true
-#   roles:
-#     - monitoring
+- name: Configure monitoring
+  hosts: monitoring
+  become: true
+  roles:
+    - monitoring
