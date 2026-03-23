@@ -50,18 +50,18 @@
 
 - name: Start node-exporter container
   become_user: "{{ docker_user }}"
-  command:
-    cmd: >
-      docker run -d
-      --name node-exporter
-      --restart unless-stopped
-      --pid host
-      --network host
-      -v /proc:/host/proc:ro
-      -v /sys:/host/sys:ro
-      -v /:/rootfs:ro
-      prom/node-exporter:latest
-      --path.procfs=/host/proc
-      --path.sysfs=/host/sys
+  shell: |
+    docker ps -a --filter name=node-exporter --format "{{ '{{' }}.Names{{ '}}' }}" | grep -q node-exporter || \
+    docker run -d \
+      --name node-exporter \
+      --restart unless-stopped \
+      --pid host \
+      --network host \
+      -v /proc:/host/proc:ro \
+      -v /sys:/host/sys:ro \
+      -v /:/rootfs:ro \
+      prom/node-exporter:latest \
+      --path.procfs=/host/proc \
+      --path.sysfs=/host/sys \
       --path.rootfs=/rootfs
-  ignore_errors: true  # ok if already running
+  ignore_errors: true
