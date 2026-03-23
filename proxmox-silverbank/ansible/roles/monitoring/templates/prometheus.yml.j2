@@ -17,6 +17,7 @@ scrape_configs:
           - '192.168.7.60:9100'    # db-postgresql
 
   - job_name: 'silverbank-backend'
+    metrics_path: /api/health   # nu e metrics reale dar cel putin e up/down
     static_configs:
       - targets:
           - '{{ blue_app_ip }}:4000'
