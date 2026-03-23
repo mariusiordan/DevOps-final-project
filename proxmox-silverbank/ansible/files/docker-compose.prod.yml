@@ -12,6 +12,8 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       PORT: 4000
       FRONTEND_URL: http://localhost:3000
+      DEPLOY_ENV: ${DEPLOY_ENV:-production}
+      IMAGE_TAG: ${APP_TAG:-latest}
 
   frontend:
     image: ghcr.io/mariusiordan/silverbank-frontend:${APP_TAG:-latest}
