@@ -38,3 +38,30 @@
 - name: Set timezone to UTC
   timezone:
     name: UTC
+
+# Install node-exporter for Prometheus metrics
+# Runs on all VMs - exposes system metrics on port 9100
+- name: Allow node-exporter from monitoring VM only
+  ufw:
+    rule: allow
+    port: "9100"
+    proto: tcp
+    src: "192.168.7.70"  # only monitoring-staging can scrape metrics
+
+- name: Start node-exporter container
+  become_user: "{{ docker_user }}"
+  command:
+    cmd: >
+      docker run -d
+      --name node-exporter
+      --restart unless-stopped
+      --pid host
+      --network host
+      -v /proc:/host/proc:ro
+      -v /sys:/host/sys:ro
+      -v /:/rootfs:ro
+      prom/node-exporter:latest
+      --path.procfs=/host/proc
+      --path.sysfs=/host/sys
+      --path.rootfs=/rootfs
+  ignore_errors: true  # ok if already running
