@@ -16,8 +16,8 @@ scrape_configs:
           - '192.168.7.102:9100'   # prod-green
           - '192.168.7.60:9100'    # db-postgresql
 
-  - job_name: 'app'
+  - job_name: 'silverbank-backend'
     static_configs:
       - targets:
-          - '{{ blue_app_ip }}:{{ app_port }}'
-          - '{{ green_app_ip }}:{{ app_port }}'
+          - '{{ blue_app_ip }}:4000'
+          - '{{ green_app_ip }}:4000'

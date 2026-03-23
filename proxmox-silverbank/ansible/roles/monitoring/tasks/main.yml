@@ -2,7 +2,7 @@
 - name: Allow Grafana from LAN only
   ufw:
     rule: allow
-    port: "3000"
+    port: "3001"  # changed from 3000
     proto: tcp
     src: "192.168.7.0/24"
 
@@ -40,9 +40,15 @@
     group: "{{ docker_user }}"
     mode: "0644"
 
-- name: Start monitoring stack
-  community.docker.docker_compose_v2:
-    project_src: /opt/monitoring
-    state: present
-  become: yes
+- name: Stop existing monitoring stack
   become_user: "{{ docker_user }}"
+  command:
+    cmd: docker compose down
+    chdir: /opt/monitoring
+  ignore_errors: true
+
+- name: Start monitoring stack
+  become_user: "{{ docker_user }}"
+  command:
+    cmd: docker compose up -d
+    chdir: /opt/monitoring
