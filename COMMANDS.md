@@ -126,9 +126,9 @@ ansible-playbook playbooks/site.yml --limit db -i inventory-aws.ini
 
 cd proxmox-silverbank/ansible
 
-# Deploy to idle Blue/Green environment (auto-detected)
+# Deploy to idle Blue/Green environment
 ansible-playbook playbooks/deploy-idle.yml \
-  -e "app_tag=v1.0-prod-2026-03-22-sha-abc123" \
+  -e "app_tag=v1.0-sha-abc1234" \
   -e "idle_env=blue" \
   -i inventory.ini
 
@@ -144,14 +144,14 @@ ansible-playbook playbooks/switch-traffic.yml \
 
 # Monitor + auto-rollback (10 minutes, every 30 seconds)
 ansible-playbook playbooks/rollback.yml \
-  -e "app_tag=v1.0-prod-2026-03-22-sha-abc123" \
+  -e "app_tag=v1.0-sha-abc1234" \
   -e "new_env=blue" \
   -e "previous_env=green" \
   -i inventory.ini
 
 # Deploy to staging
 ansible-playbook playbooks/deploy-staging.yml \
-  -e "app_tag=v1.0-staging-2026-03-22-sha-abc123" \
+  -e "app_tag=v1.0-sha-abc1234" \
   -i inventory.ini
 
 # Emergency DB failover
@@ -228,8 +228,82 @@ curl http://192.168.7.70:4000/api/health
 # AWS DR (IP changes on each terraform apply - check terraform output)
 curl http://$(cd aws-silverbank/terraform && terraform output -raw edge_elastic_ip)/api/health
 
-# Expected response:
-# {"status":"ok","database":"connected","environment":"blue","image_tag":"v1.0-prod-..."}
+# Expected response includes deployment metadata:
+# {"status":"ok","database":"connected","environment":"blue","image_tag":"v1.0-sha-abc1234"}
+
+
+# ============================================================
+# MONITORING - ACCESS
+# ============================================================
+
+# Grafana dashboard
+# URL:      http://192.168.7.70:3001
+# Username: admin
+# Password: stored in Ansible Vault as vault_grafana_password
+
+# Prometheus targets and metrics
+# URL: http://192.168.7.70:9090
+# Check all scrape targets: http://192.168.7.70:9090/targets
+
+# All 5 node-exporter targets should show UP:
+# 192.168.7.50:9100   edge-nginx
+# 192.168.7.60:9100   db-postgresql
+# 192.168.7.70:9100   monitoring-staging
+# 192.168.7.101:9100  prod-vm1-BLUE
+# 192.168.7.102:9100  prod-vm2-GREEN
+
+
+# ============================================================
+# MONITORING - GRAFANA SETUP (after fresh install)
+# ============================================================
+
+# Step 1 - Add Prometheus data source
+# Grafana → Connections → Data Sources → Add data source → Prometheus
+# URL: http://localhost:9090
+# Click Save & Test → should say "Successfully queried the Prometheus API"
+
+# Step 2 - Import Node Exporter Full dashboard
+# Grafana → Dashboards → New → Import
+# Dashboard ID: 1860
+# Click Load → select the Prometheus data source → Import
+
+# Step 3 - Select VM to monitor
+# Use the "nodename" dropdown at the top of the dashboard
+# Shows CPU usage, memory, disk space, network throughput per VM
+
+
+# ============================================================
+# MONITORING - TROUBLESHOOTING
+# ============================================================
+
+ssh devop@192.168.7.70
+
+# Check all monitoring containers are running
+docker ps | grep -E "prometheus|grafana|loki|node-exporter"
+
+# Check Prometheus logs
+docker logs prometheus --tail 30
+
+# Check Grafana logs
+docker logs grafana --tail 30
+
+# Restart monitoring stack
+cd /opt/monitoring
+docker compose down
+docker compose up -d
+
+# Test node-exporter reachability from monitoring VM
+curl -s http://192.168.7.101:9100/metrics | head -5   # BLUE
+curl -s http://192.168.7.102:9100/metrics | head -5   # GREEN
+curl -s http://192.168.7.50:9100/metrics  | head -5   # edge
+curl -s http://192.168.7.60:9100/metrics  | head -5   # db
+
+# Check node-exporter container on a specific VM
+ssh devop@192.168.7.101 "docker ps --filter name=node-exporter"
+
+# Restart node-exporter on ALL VMs at once
+ansible all -m command -a "docker restart node-exporter" -b \
+  -i proxmox-silverbank/ansible/inventory.ini
 
 
 # ============================================================
@@ -322,10 +396,6 @@ cd /opt/postgres
 docker compose down
 docker compose up -d
 
-# Test connection from blue VM
-ssh devop@192.168.7.101
-curl telnet://10.10.20.20:5432                  # should connect (not refused)
-
 
 # ============================================================
 # TROUBLESHOOTING - AWS VMs
@@ -373,25 +443,33 @@ sudo ufw enable                                 # re-enable after debugging
 
 
 # ============================================================
-# TROUBLESHOOTING - GITHUB ACTIONS
+# TROUBLESHOOTING - GITHUB ACTIONS RUNNER
 # ============================================================
 
-# Trigger workflow without code changes
-git commit --allow-empty -m "ci: trigger pipeline"
-git push origin dev
-
-# Check runner status on staging VM
+# Check runner status
 ssh devop@192.168.7.70
 sudo systemctl status actions.runner.mariusiordan-SilverBank-App.monitoring-staging.service
 
 # Restart runner if stuck
 sudo systemctl restart actions.runner.mariusiordan-SilverBank-App.monitoring-staging.service
 
+# Reinstall runner after infrastructure rebuild
+# 1. Go to GitHub → SilverBank-App → Settings → Actions → Runners → New runner
+# 2. Select Linux x64 and follow the download + configure instructions
+# 3. Install and start as a service:
+sudo ./svc.sh install
+sudo ./svc.sh start
+sudo systemctl status actions.runner.mariusiordan-SilverBank-App.monitoring-staging.service
+
+# Trigger workflow without code changes
+git commit --allow-empty -m "ci: trigger pipeline"
+git push origin dev
+
 # Required GitHub Secrets (Settings → Secrets → Actions)
-# GHCR_TOKEN          - GitHub PAT with write:packages
-# PROXMOX_SSH_KEY     - private SSH key
-# VAULT_PASSWORD      - Ansible Vault password
-# AWS_ACCESS_KEY_ID   - AWS IAM key
+# GHCR_TOKEN            - GitHub PAT with write:packages
+# PROXMOX_SSH_KEY       - private SSH key
+# VAULT_PASSWORD        - Ansible Vault password
+# AWS_ACCESS_KEY_ID     - AWS IAM key
 # AWS_SECRET_ACCESS_KEY - AWS IAM secret
 
 
@@ -426,9 +504,6 @@ ansible all -m ping -i inventory.ini
 # Uptime
 ansible all -m command -a "uptime" -i inventory.ini
 
-# Container status
-ansible all -m command -a "docker ps --format 'table {{.Names}}\t{{.Status}}'" -i inventory.ini
-
 # Nginx config
 ansible edge-nginx -m command -a "sudo nginx -t" -i inventory.ini
 
@@ -437,11 +512,20 @@ ansible db-postgresql -m command \
   -a "docker exec postgres pg_isready -U devop_db -d appdb" \
   -i inventory.ini
 
+# node-exporter running on all VMs
+ansible all -m command \
+  -a "docker ps --filter name=node-exporter" \
+  -i inventory.ini
+
 # End-to-end from local machine
 curl http://192.168.7.50/api/health             # via nginx (production)
 curl http://192.168.7.101:4000/api/health       # blue direct
 curl http://192.168.7.102:4000/api/health       # green direct
 curl http://192.168.7.70:4000/api/health        # staging direct
+
+# Monitoring stack
+curl -s http://192.168.7.70:9090/-/healthy      # Prometheus health
+curl -s http://192.168.7.70:3001/api/health     # Grafana health
 
 
 # ============================================================
@@ -462,16 +546,26 @@ cd ../ansible
 ansible all -m ping -i inventory.ini            # verify connectivity first
 ansible-playbook playbooks/site.yml -i inventory.ini
 
-# 5. Verify
-curl http://192.168.7.50/api/health
-ansible all -m command -a "docker ps" -i inventory.ini
+# 5. Reinstall GitHub Actions runner (lost after rebuild)
+# Go to GitHub → SilverBank-App → Settings → Actions → Runners → New runner
+# SSH into staging VM and follow the instructions, then:
+# sudo ./svc.sh install && sudo ./svc.sh start
+
+# 6. Reconfigure Grafana (if Docker volume was lost)
+# Grafana → Connections → Data Sources → Add → Prometheus
+# URL: http://localhost:9090 → Save & Test
+# Grafana → Dashboards → New → Import → ID: 1860 → Import
+
+# 7. Verify everything
+curl http://192.168.7.50/api/health             # application health
+curl http://192.168.7.70:9090/targets           # all 5 Prometheus targets UP
 
 
 # ============================================================
 # DISASTER RECOVERY - AWS ACTIVATION
 # ============================================================
 
-# 1. Provision AWS infrastructure
+# 1. Provision AWS infrastructure (~3 minutes)
 cd aws-silverbank/terraform
 terraform apply -auto-approve \
   -var="ssh_public_key=$(cat ~/.ssh/id_ed25519.pub)" \
@@ -479,12 +573,12 @@ terraform apply -auto-approve \
 
 # 2. Wait ~60 seconds for EC2 instances to boot
 
-# 3. Configure VMs
+# 3. Configure VMs (~10 minutes)
 cd ../ansible
 ansible all -m ping -i inventory-aws.ini        # verify connectivity first
 ansible-playbook playbooks/site.yml -i inventory-aws.ini
 
-# 4. Verify
+# 4. Verify (~15 minutes total from step 1)
 cd ../terraform
 curl http://$(terraform output -raw edge_elastic_ip)/api/health
 
