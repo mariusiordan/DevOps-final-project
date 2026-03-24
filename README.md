@@ -1,6 +1,6 @@
-# SilverBank DevOps Infrastructure
+# SilverBank DevOps Infrastructure — UPDATED
 
-> Production-grade CI/CD ecosystem for a 3-tier banking application — provisioned with Terraform, configured with Ansible, containerized with Docker, and deployed via GitHub Actions using a Blue/Green strategy on a Proxmox homelab, with AWS as a fully automated disaster recovery environment.
+> Production-grade CI/CD ecosystem for a 3-tier banking application — provisioned with Terraform, configured with Ansible, containerized with Docker, and deployed via GitHub Actions using a Blue/Green strategy on a Proxmox homelab, with AWS as a fully automated disaster recovery environment activatable in under 15 minutes.
 
 ---
 
@@ -13,6 +13,7 @@
 - [Application (Docker)](#application-docker)
 - [CI/CD Pipelines (GitHub Actions)](#cicd-pipelines-github-actions)
 - [Blue/Green Deployment](#bluegreen-deployment)
+- [Monitoring](#monitoring)
 - [Database & Persistence](#database--persistence)
 - [AWS Disaster Recovery](#aws-disaster-recovery)
 - [Secrets Management](#secrets-management)
@@ -24,57 +25,16 @@
 
 ## Architecture Overview
 
-```
-                    ┌──────────────────────────────────────────────────────────┐
-                    │                  Proxmox Home Server                    │
-                    │                                                          │
-Internet / LAN      │  ┌──────────────────────────────┐                       │
-192.168.7.x ────────┼─▶│         edge-nginx           │                       │
-                    │  │         192.168.7.50          │                       │
-                    │  │  /api/* → backend :4000       │                       │
-                    │  │  /*     → frontend :3000      │                       │
-                    │  └────────────┬─────────────────┘                       │
-                    │               │                                          │
-                    │  ┌────────────▼──────┐     ┌────────────────────┐       │
-                    │  │  prod-vm1-BLUE    │     │  prod-vm2-GREEN    │       │
-                    │  │  192.168.7.101    │     │  192.168.7.102     │       │
-                    │  │  ┌─────────────┐  │     │  ┌─────────────┐   │       │
-                    │  │  │  frontend   │  │     │  │  frontend   │   │       │
-                    │  │  │  :3000      │  │     │  │  :3000      │   │       │
-                    │  │  ├─────────────┤  │     │  ├─────────────┤   │       │
-                    │  │  │  backend    │  │     │  │  backend    │   │       │
-                    │  │  │  :4000      │  │     │  │  :4000      │   │       │
-                    │  │  └─────────────┘  │     │  └─────────────┘   │       │
-                    │  │    Active ✅      │     │    Idle 💤         │       │
-                    │  └──────────┬────────┘     └──────────┬─────────┘       │
-                    │             └──────────┬───────────────┘                 │
-APP Network         │                        │                                 │
-10.10.20.x ─────────┼────────────────────────┼─────────────────────────────── │
-                    │             ┌───────────▼────────────┐                  │
-                    │             │      db-postgresql     │                  │
-                    │             │      192.168.7.60      │                  │
-                    │             │      PostgreSQL 16     │                  │
-                    │             │   persistent volume    │                  │
-                    │             └────────────────────────┘                  │
-                    │                                                          │
-                    │  ┌───────────────────────────────────────────────────┐  │
-                    │  │   monitoring-staging   192.168.7.70               │  │
-                    │  │   ┌──────────┐ ┌──────────┐ ┌──────────────┐     │  │
-                    │  │   │ frontend │ │ backend  │ │  postgres db │     │  │
-                    │  │   │  :3000   │ │  :4000   │ │   :5432      │     │  │
-                    │  │   └──────────┘ └──────────┘ └──────────────┘     │  │
-                    │  │   Staging environment + CI/CD self-hosted runner  │  │
-                    │  └───────────────────────────────────────────────────┘  │
-                    └──────────────────────────────────────────────────────────┘
-```
+## Architecture Overview    
+
+![SilverBank Infrastructure](silverbank-infrastructure.svg)
 
 ### AWS Disaster Recovery Environment
 
-```
 Internet
     │
     ▼
-edge-nginx (public IP — Elastic IP, static across restarts)
+edge-nginx (Elastic IP — static across destroy/apply cycles)
     │
     ├── /api/* → prod-vm1-BLUE (private subnet) :4000
     └── /*     → prod-vm1-BLUE (private subnet) :3000
@@ -83,7 +43,7 @@ edge-nginx (public IP — Elastic IP, static across restarts)
                db-postgresql (private subnet) :5432
 
 Private VMs accessible only via SSH ProxyJump through edge (bastion pattern).
-Terraform state stored in S3 — infrastructure can be reprovisioned from any machine.
+Terraform state stored in S3 — infrastructure reproducible from any machine in ~15 minutes.
 ```
 
 ### 3-Tier Application Architecture
@@ -125,6 +85,8 @@ The database is **not reachable from LAN** — only from the APP network. On AWS
 | Frontend | Next.js 16 | SilverBank UI (React) |
 | Backend | Express.js + Prisma | SilverBank REST API |
 | CI/CD | GitHub Actions | Automated testing, building, and deployment |
+| Monitoring | Prometheus + Grafana + Loki | Metrics, dashboards, log aggregation |
+| Metrics Agent | node-exporter | System metrics on all 5 VMs |
 | DR Environment | AWS EC2 + VPC + S3 | Full infrastructure disaster recovery |
 | State Backend | AWS S3 + DynamoDB | Remote Terraform state with locking |
 
@@ -144,7 +106,7 @@ Terraform provisions all VMs from a single Ubuntu 24.04 template using `for_each
 | `prod-vm1-BLUE` | 810 | 192.168.7.101 | 10.10.20.11 | 2 vCPU / 4GB | Production (Blue) |
 | `prod-vm2-GREEN` | 811 | 192.168.7.102 | 10.10.20.12 | 2 vCPU / 4GB | Production (Green) |
 | `db-postgresql` | 860 | 192.168.7.60 | 10.10.20.20 | 2 vCPU / 4GB | Primary database |
-| `monitoring-staging` | 800 | 192.168.7.70 | 10.10.20.30 | 2 vCPU / 4GB | Staging + CI/CD runner |
+| `monitoring-staging` | 800 | 192.168.7.70 | 10.10.20.30 | 2 vCPU / 4GB | Staging + CI/CD runner + Monitoring |
 
 #### Project Structure
 
@@ -170,7 +132,7 @@ terraform destroy -parallelism=3
 
 ### AWS
 
-AWS infrastructure mirrors Proxmox with a simplified single-VM production setup. Terraform state is stored remotely in S3 with DynamoDB locking — infrastructure can be reprovisioned from any machine without local state files.
+AWS infrastructure mirrors Proxmox with a simplified single-VM production setup. Terraform state is stored remotely in S3 with DynamoDB locking — the entire environment can be reprovisioned from any machine in approximately 15 minutes.
 
 #### AWS VM Layout
 
@@ -219,10 +181,11 @@ proxmox-silverbank/ansible/
 │   ├── db.yml                        # PostgreSQL vars
 │   └── monitoring.yml                # staging vars (uses local DB container)
 ├── roles/
-│   ├── common/                       # all VMs: Docker, UFW, packages, timezone
+│   ├── common/                       # all VMs: Docker, UFW, node-exporter, timezone
 │   ├── nginx/                        # edge: nginx + upstream config + switch script
 │   ├── postgres/                     # db: PostgreSQL 16 in Docker + persistent volume
-│   └── app/                          # blue+green: pull images, write .env, start containers
+│   ├── app/                          # blue+green: pull images, write .env, start containers
+│   └── monitoring/                   # staging: Prometheus + Grafana + Loki
 └── playbooks/
     ├── site.yml                      # full setup from scratch
     ├── deploy-idle.yml               # deploy to idle Blue/Green environment
@@ -237,10 +200,11 @@ proxmox-silverbank/ansible/
 
 | Role | Target VMs | What it does |
 |---|---|---|
-| `common` | All VMs | Docker install, UFW firewall, packages, UTC timezone |
-| `nginx` | edge-nginx | Nginx install, upstream config, Blue/Green switch script |
+| `common` | All VMs | Docker, UFW firewall, node-exporter, packages, UTC timezone |
+| `nginx` | edge-nginx | Nginx, upstream config, Blue/Green switch script |
 | `postgres` | db-postgresql | PostgreSQL 16 in Docker, persistent volume |
 | `app` | blue, green | Pull Docker images from ghcr.io, write `.env`, start containers |
+| `monitoring` | monitoring-staging | Prometheus + Grafana + Loki stack |
 
 ### Usage
 
@@ -257,6 +221,7 @@ ansible-playbook playbooks/site.yml -i inventory.ini
 ansible-playbook playbooks/site.yml --limit edge-nginx -i inventory.ini
 ansible-playbook playbooks/site.yml --limit prod -i inventory.ini
 ansible-playbook playbooks/site.yml --limit db -i inventory.ini
+ansible-playbook playbooks/site.yml --limit stage-monitoring -i inventory.ini
 ```
 
 ---
@@ -272,19 +237,23 @@ ghcr.io/mariusiordan/silverbank-frontend:<tag>
 ghcr.io/mariusiordan/silverbank-backend:<tag>
 ```
 
-Tag format: `v{MAJOR}.{MINOR}-{env}-{date}-sha-{git-sha}`
+Tag format: `v{MAJOR}.{MINOR}-sha-{git-sha}`
+
 Examples:
-- `v1.0-staging-2026-03-22-sha-abc1234`
-- `v1.0-prod-2026-03-22-sha-abc1234`
-- `latest` — most recent stable production image
+- `v1.0-sha-abc1234` — staging build, promoted to production unchanged
+- `latest` — most recent stable production image (promoted after 10-minute health check)
+
+The version component (`v1.0`, `v1.1`, `v2.0`) is managed manually and incremented when releasing new features or breaking changes. The SHA component is generated automatically from the git commit, making every tag immutable and fully traceable.
 
 ### Image Promotion Flow
 
 ```
-staging.yml builds image → tags as :staging
-deploy.yml promotes :staging → :prod-{date}-sha-{sha}
+staging.yml builds image → tags as :v1.x-sha-{sha} + :staging
+deploy.yml promotes :staging → :v1.x-sha-{sha} (retag, no rebuild)
 After 10-minute health check → promotes to :latest (used by AWS DR)
 ```
+
+No image is ever rebuilt between staging and production — the exact artifact tested on staging is what gets deployed to production.
 
 ### docker-compose Files
 
@@ -310,18 +279,20 @@ Stage 2 (runner)  → copy dist/, prisma migrate deploy, node dist/index.js
 
 ### Health Endpoint
 
-The backend exposes `/api/health` which returns deployment metadata:
+The backend exposes `/api/health` which returns full deployment metadata:
 
 ```json
 {
   "status": "ok",
-  "timestamp": "2026-03-22T22:41:37.668Z",
+  "timestamp": "2026-03-23T21:19:12.526Z",
   "database": "connected",
   "version": "1.0.0",
   "environment": "blue",
-  "image_tag": "v1.0-prod-2026-03-22-sha-abc1234"
+  "image_tag": "v1.1-sha-abc1234"
 }
 ```
+
+This allows instant traceability — from a running container back to the exact git commit that produced it.
 
 ---
 
@@ -365,7 +336,7 @@ Auth and Account tests run inside a Docker container to guarantee a consistent e
 lint
   ├── JWT Tests      ┐
   ├── Auth Tests     ├──► Build Docker images ──► Push to ghcr.io
-  └── Account Tests  ┘    (tag: v1.x-staging-{date}-sha-{sha} + :staging)
+  └── Account Tests  ┘    (tag: v1.x-sha-{sha} + :staging)
                                     │
                                     ▼
                          Deploy to monitoring-staging VM
@@ -389,7 +360,7 @@ Staging uses an **isolated local PostgreSQL container** — it does not connect 
 
 ```
 Promote Image
-  (retag :staging → :prod-{date}-sha-{sha}, no rebuild)
+  (retag :staging → :v1.x-sha-{sha}, no rebuild — same artifact as staging)
     │
     ▼
 Manual Approval ⏳
@@ -413,13 +384,12 @@ Switch Nginx Traffic
     │
     ▼
 Monitor + Auto-Rollback
-  (10 minutes, every 30 seconds)
+  (10 minutes, health check every 30 seconds)
     ├── stable → promote image to :latest → AWS DR ready
     └── 3 consecutive failures → switch back to previous env → pipeline fails
     │
     ▼
-Update AWS DR (if active)
-  (detect edge IP from Terraform state → pull :latest → redeploy)
+Update AWS DR (suspended — activate manually for DR demo)
 ```
 
 ### Required GitHub Secrets
@@ -492,9 +462,9 @@ cat /opt/current-env
 ```bash
 cd proxmox-silverbank/ansible
 
-# Deploy to idle environment (used by CI/CD)
+# Deploy to idle environment
 ansible-playbook playbooks/deploy-idle.yml \
-  -e "app_tag=v1.0-prod-2026-03-22-sha-abc123" \
+  -e "app_tag=v1.0-sha-abc1234" \
   -e "idle_env=blue" \
   -i inventory.ini
 
@@ -510,11 +480,51 @@ ansible-playbook playbooks/switch-traffic.yml \
 
 # Monitor + auto-rollback
 ansible-playbook playbooks/rollback.yml \
-  -e "app_tag=v1.0-prod-2026-03-22-sha-abc123" \
+  -e "app_tag=v1.0-sha-abc1234" \
   -e "new_env=blue" \
   -e "previous_env=green" \
   -i inventory.ini
 ```
+
+---
+
+## Monitoring
+
+Prometheus, Grafana, and Loki run on the `monitoring-staging` VM. node-exporter is installed on all 5 VMs via the `common` Ansible role, giving full visibility across the entire infrastructure.
+
+### Stack
+
+| Component | Port | Purpose |
+|---|---|---|
+| Prometheus | 9090 | Metrics collection and storage |
+| Grafana | 3001 | Dashboards and visualization |
+| Loki | 3100 | Log aggregation |
+| node-exporter | 9100 | System metrics (CPU, RAM, disk, network) |
+
+### Access
+
+```
+http://192.168.7.70:3001   # Grafana (admin / vault_grafana_password)
+http://192.168.7.70:9090   # Prometheus
+```
+
+### Scraped Targets
+
+Prometheus scrapes node-exporter on all VMs every 15 seconds:
+
+```
+192.168.7.50:9100   edge-nginx
+192.168.7.60:9100   db-postgresql
+192.168.7.70:9100   monitoring-staging
+192.168.7.101:9100  prod-vm1-BLUE
+192.168.7.102:9100  prod-vm2-GREEN
+```
+
+Port 9100 is firewalled on each VM — only `192.168.7.70` (monitoring VM) can reach it.
+
+### Recommended Dashboard
+
+Import dashboard ID `1860` (Node Exporter Full) from grafana.com for CPU, memory, disk, and network metrics per VM.
 
 ---
 
@@ -553,7 +563,7 @@ ansible-playbook playbooks/db-failover.yml -i inventory.ini
 
 ## AWS Disaster Recovery
 
-Full duplicate infrastructure on AWS (eu-west-2, London). Activated manually when Proxmox is unavailable. Uses a simplified single-VM production setup — no Blue/Green on DR (simplicity is the priority during an outage).
+The AWS environment is a full duplicate of the Proxmox infrastructure, designed to be activated in approximately 15 minutes when Proxmox is unavailable. It uses a simplified single-VM production setup — Terraform state is stored in S3, so the entire environment can be reprovisioned from any machine with no local state dependency.
 
 ### Design Decisions
 
@@ -561,28 +571,30 @@ Full duplicate infrastructure on AWS (eu-west-2, London). Activated manually whe
 DR is activated rarely and temporarily. Adding Blue/Green complexity to a recovery environment increases the risk of mistakes during a stressful outage. A single, stable VM is faster and safer to operate.
 
 **Why no DB sync from Proxmox to AWS?**
-Syncing would require exposing the Proxmox DB port to the internet, which is a security risk for a homelab. In a production environment, this would be implemented via:
-- **PostgreSQL streaming replication** over a VPN tunnel
-- **Scheduled pg_dump to S3** (hourly snapshots)
-- **AWS DMS** (managed CDC replication)
+The DR environment starts with a clean database. The architecture supports data synchronisation — a scheduled `pg_dump` to S3 from Proxmox, combined with an automatic restore on DR activation, would give the AWS environment a near-identical copy of production data.
 
-The DR environment starts with a clean database. This is acceptable for a capstone/demo project.
+This was intentionally not implemented: it requires the Proxmox host to have outbound internet access for S3 uploads, which introduces a network exposure that is not acceptable for a homelab environment at this stage. The implementation path is clear when the security posture allows it.
+
+Considered alternatives:
+- **pg_dump to S3** (hourly snapshots + restore on DR activation) — feasible, deferred for security reasons
+- **PostgreSQL streaming replication** over a VPN tunnel — enterprise-grade, appropriate at larger scale
+- **AWS DMS** (managed CDC replication) — ~$50/month, not justified for a DR-only environment
 
 ### Activate DR
 
 ```bash
-# Step 1 — provision AWS infrastructure
+# Step 1 — provision AWS infrastructure (~5 minutes)
 cd aws-silverbank/terraform
 terraform apply -auto-approve \
   -var="ssh_public_key=$(cat ~/.ssh/id_ed25519.pub)" \
   -var="your_home_ip=$(curl -4 ifconfig.me)/32"
 
-# Step 2 — configure VMs
+# Step 2 — configure VMs (~8 minutes)
 cd ../ansible
 ansible-playbook playbooks/site.yml -i inventory-aws.ini
 
 # Step 3 — verify
-curl http://$(terraform output -raw edge_elastic_ip)/api/health
+curl http://$(cd ../terraform && terraform output -raw edge_elastic_ip)/api/health
 ```
 
 ### Deactivate DR
@@ -594,14 +606,11 @@ terraform destroy -auto-approve \
   -var="your_home_ip=$(curl -4 ifconfig.me)/32"
 ```
 
-### Auto-Update from CI/CD
+### Auto-Update from CI/CD (suspended)
 
-When AWS DR is active, the production pipeline automatically detects it and deploys the latest stable image after every successful Proxmox deployment:
+The production pipeline includes an `aws-update` job that automatically detects whether the AWS DR environment is active and deploys the latest stable image if so. This job is currently suspended to avoid pipeline failures when AWS is not running.
 
-```
-Proxmox deploy → :latest promoted → aws-update job detects edge IP from Terraform state
-→ curl /api/health → active → pull :latest → redeploy → health check
-```
+To re-enable, uncomment the `aws-update` job in `.github/workflows/deploy.yml`.
 
 ---
 
@@ -633,8 +642,8 @@ ansible-vault view proxmox-silverbank/ansible/group_vars/all/vault.yml
 
 Secrets managed in vault:
 - `vault_db_user` / `vault_db_password` / `vault_postgres_password`
-- `vault_jwt_secret`
-- `vault_ghcr_token`
+- `vault_jwt_secret` / `vault_ghcr_token`
+- `vault_grafana_password`
 
 ---
 
@@ -693,7 +702,7 @@ ansible-playbook playbooks/site.yml -i inventory.ini
 
 ```bash
 curl http://192.168.7.50/api/health
-# → {"status":"ok","database":"connected","environment":"blue","image_tag":"v1.0-prod-..."}
+# → {"status":"ok","database":"connected","environment":"blue","image_tag":"v1.0-sha-abc1234"}
 ```
 
 ### Recommended SSH Config
@@ -727,15 +736,15 @@ Host 192.168.7.*
 | Component | Environment | Status |
 |---|---|---|
 | Terraform — VM provisioning | Proxmox (5 VMs) | ✅ Done |
-| Terraform — AWS infrastructure | AWS (3 VMs + VPC + S3 state) | ✅ Done |
-| Common role (Docker, UFW, timezone) | All VMs | ✅ Done |
+| Terraform — AWS infrastructure + S3 state | AWS (3 VMs + VPC) | ✅ Done |
+| Common role (Docker, UFW, node-exporter, timezone) | All VMs | ✅ Done |
 | Nginx + Blue/Green switch script | edge-nginx | ✅ Done |
 | Nginx routing `/api/` → backend, `/` → frontend | edge-nginx | ✅ Done |
 | Frontend container (Next.js :3000) | prod-vm1-BLUE, prod-vm2-GREEN | ✅ Done |
 | Backend container (Express :4000) | prod-vm1-BLUE, prod-vm2-GREEN | ✅ Done |
 | PostgreSQL 16 + persistent volume | db-postgresql | ✅ Done |
 | Staging VM — isolated 3-tier deployment | monitoring-staging | ✅ Done |
-| Health endpoint — status, env, image tag | backend | ✅ Done |
+| Health endpoint — status, environment, image tag | backend | ✅ Done |
 | Pipeline 1 — CI (lint + parallel tests + PR comment) | GitHub Actions | ✅ Done |
 | Pipeline 2 — Staging (build + push + deploy + integration tests) | GitHub Actions | ✅ Done |
 | Pipeline 3 — Production (promote + approve + Blue/Green + rollback) | GitHub Actions | ✅ Done |
@@ -743,13 +752,15 @@ Host 192.168.7.*
 | Smoke tests before traffic switch | deploy.yml | ✅ Done |
 | Auto-rollback after 10 minutes monitoring | rollback.yml | ✅ Done |
 | :latest promotion after stable deployment | rollback.yml | ✅ Done |
-| AWS DR — manual activation | aws-silverbank | ✅ Done |
-| AWS DR — auto-update from CI/CD pipeline | deploy.yml | ✅ Done |
+| Image tag format — immutable, traceable (v1.x-sha-{git}) | ghcr.io | ✅ Done |
+| AWS DR — manual activation (~15 minutes RTO) | aws-silverbank | ✅ Done |
 | Terraform state in S3 + DynamoDB locking | aws-silverbank | ✅ Done |
 | Docker image cleanup before deploy | All deploy playbooks | ✅ Done |
 | Staging DB isolation (no production DB access) | monitoring.yml | ✅ Done |
+| Prometheus + Grafana + Loki | monitoring-staging | ✅ Done |
+| node-exporter on all VMs | All VMs | ✅ Done |
+| AWS DR auto-update from CI/CD | deploy.yml | ⏸ Suspended |
 | SSL / Let's Encrypt | edge-nginx | 🔲 Planned |
-| Prometheus + Grafana monitoring | monitoring-staging | 🔲 Planned |
 
 ---
 
@@ -779,7 +790,8 @@ terraform-ansible-infrastructure/
 │       │   ├── common/
 │       │   ├── nginx/
 │       │   ├── postgres/
-│       │   └── app/
+│       │   ├── app/
+│       │   └── monitoring/
 │       └── playbooks/
 │           ├── site.yml
 │           ├── deploy-idle.yml
@@ -804,6 +816,7 @@ terraform-ansible-infrastructure/
 │           ├── site.yml
 │           └── deploy-production.yml
 ├── COMMANDS.md
+├── BLUE-GREEN.md
 └── README.md
 ```
 

@@ -80,3 +80,5 @@ secrets.yml
 .idea/
 *.swp
 *.swo
+
+!silverbank-infrastructure.svg
