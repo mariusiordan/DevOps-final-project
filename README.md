@@ -27,69 +27,9 @@
 
 ## Architecture Overview    
 
-```mermaid
-flowchart TD
-    subgraph GH["🔧 GitHub Actions CI/CD"]
-        P1["Pipeline 1 — test.yml\nlint + parallel tests\nPR comment on fail"]
-        P2["Pipeline 2 — staging.yml\nbuild + push images\ndeploy + integration tests"]
-        P3["Pipeline 3 — deploy.yml\npromote → approve → Blue/Green\n10 min monitor + auto-rollback"]
-    end
+## Architecture Overview
 
-    subgraph REG["📦 GitHub Container Registry (ghcr.io)"]
-        IMG["silverbank-frontend / silverbank-backend\nv1.x-sha-{git} → :staging → :latest"]
-    end
-
-    subgraph PROX["🖥️ Proxmox Homelab"]
-        EDGE["edge-nginx\n192.168.7.50\n/api/* → :4000  |  /* → :3000"]
-
-        subgraph PROD["Production — Blue/Green"]
-            BLUE["prod-vm1-BLUE ✅\n192.168.7.101\nfrontend :3000 + backend :4000\nActive — serving traffic"]
-            GREEN["prod-vm2-GREEN 💤\n192.168.7.102\nfrontend :3000 + backend :4000\nIdle — next deploy target"]
-        end
-
-        DB["db-postgresql\n192.168.7.60\nPostgreSQL 16\npersistent volume — APP network only"]
-
-        subgraph MON["monitoring-staging — 192.168.7.70"]
-            STAGE["Staging app\nfrontend :3000 + backend :4000\nlocal PostgreSQL"]
-            RUNNER["CI/CD Runner\nself-hosted\nGitHub Actions"]
-            PROM["Prometheus :9090\nscrapes all 5 VMs\nnode-exporter :9100"]
-            GRAF["Grafana :3001\ndashboards\nNode Exporter Full"]
-        end
-    end
-
-    subgraph AWS["☁️ AWS Disaster Recovery — eu-west-2"]
-        AWSEDGE["edge-nginx\npublic subnet\nElastic IP — static"]
-        AWSPROD["prod-vm1-BLUE\nprivate subnet\nfrontend + backend"]
-        AWSDB["db-postgresql\nprivate subnet\nPostgreSQL 16"]
-        S3["Terraform state\nS3 + DynamoDB locking"]
-    end
-
-    P2 -->|"push :staging"| REG
-    P3 -->|"promote to :prod tag"| REG
-    REG -->|"pull images"| BLUE
-    REG -->|"pull images"| GREEN
-    REG -->|"pull images"| STAGE
-
-    P2 -->|"ansible deploy"| STAGE
-    P3 -->|"ansible deploy"| BLUE
-    P3 -->|"ansible deploy"| GREEN
-
-    EDGE -->|"active env"| BLUE
-    EDGE -.->|"idle standby"| GREEN
-    BLUE -->|"APP network\n10.10.20.x"| DB
-    GREEN -->|"APP network\n10.10.20.x"| DB
-
-    PROM -->|"scrape :9100"| EDGE
-    PROM -->|"scrape :9100"| BLUE
-    PROM -->|"scrape :9100"| GREEN
-    PROM -->|"scrape :9100"| DB
-    PROM --> GRAF
-
-    P3 -.->|"DR activate\n~15 min RTO"| AWSEDGE
-    AWSEDGE --> AWSPROD
-    AWSPROD --> AWSDB
-    REG -.->|"pull :latest"| AWSPROD
-```
+![SilverBank Infrastructure](silverbank-infrastructure-diagram.svg)
 
 ### AWS Disaster Recovery Environment
 
