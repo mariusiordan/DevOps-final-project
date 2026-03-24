@@ -25,10 +25,6 @@
 
 ## Architecture Overview
 
-## Architecture Overview    
-
-## Architecture Overview
-
 ![SilverBank Infrastructure](silverbank-infrastructure-diagram.svg)
 
 ### AWS Disaster Recovery Environment
