@@ -294,6 +294,14 @@ This allows instant traceability — from a running container back to the exact 
 
 ---
 
+### CI/CD Tool Choice
+
+The project uses GitHub Actions instead of Jenkins. GitHub Actions eliminates 
+the need for a dedicated Jenkins server, provides Pipeline-as-Code natively 
+via YAML, and integrates directly with the container registry and repository. 
+The same pipeline principles apply — trigger-based workflows, parallel stages, 
+and deployment gates.
+
 ## CI/CD Pipelines (GitHub Actions)
 
 Three distinct pipelines covering the full software delivery lifecycle.
@@ -743,6 +751,7 @@ Host 192.168.7.*
 | PostgreSQL 16 + persistent volume | db-postgresql | ✅ Done |
 | Staging VM — isolated 3-tier deployment | monitoring-staging | ✅ Done |
 | Health endpoint — status, environment, image tag | backend | ✅ Done |
+| GitHub Actions (vs Jenkins) | Deliberate choice — documented above | ✅ Done |
 | Pipeline 1 — CI (lint + parallel tests + PR comment) | GitHub Actions | ✅ Done |
 | Pipeline 2 — Staging (build + push + deploy + integration tests) | GitHub Actions | ✅ Done |
 | Pipeline 3 — Production (promote + approve + Blue/Green + rollback) | GitHub Actions | ✅ Done |
