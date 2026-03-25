@@ -1,4 +1,4 @@
-# SilverBank DevOps Infrastructure — UPDATED
+# SilverBank DevOps Infrastructure
 
 > Production-grade CI/CD ecosystem for a 3-tier banking application — provisioned with Terraform, configured with Ansible, containerized with Docker, and deployed via GitHub Actions using a Blue/Green strategy on a Proxmox homelab, with AWS as a fully automated disaster recovery environment activatable in under 15 minutes.
 
@@ -29,6 +29,7 @@
 
 ### AWS Disaster Recovery Environment
 
+```
 Internet
     │
     ▼
@@ -39,10 +40,10 @@ edge-nginx (Elastic IP — static across destroy/apply cycles)
                       │
                       ▼
                db-postgresql (private subnet) :5432
+```
 
 Private VMs accessible only via SSH ProxyJump through edge (bastion pattern).
 Terraform state stored in S3 — infrastructure reproducible from any machine in ~15 minutes.
-```
 
 ### 3-Tier Application Architecture
 
@@ -114,6 +115,7 @@ proxmox-silverbank/
 ├── variables.tf              # variable declarations
 ├── outputs.tf                # outputs + auto-generates ansible/inventory.ini
 ├── ansible.tf                # generates group_vars with dynamic IPs
+├── s3-lifecycle.tf           # S3 lifecycle rules for db-backups retention
 ├── terraform.tfvars          # actual values — NOT in git
 └── terraform.tfvars.example  # example values — safe to commit
 ```
@@ -156,6 +158,17 @@ terraform {
 
 > ⚠️ **Cost warning:** NAT Gateway costs ~$33/month. Always run `terraform destroy` when done.
 
+#### S3 Backup Retention
+
+Database backups are stored in `s3://silverbank-tfstate-mariusiordan/db-backups/` and automatically deleted after 30 days via an S3 lifecycle rule defined in `s3-lifecycle.tf`.
+
+```
+backup_20260325_221318_v1.0-sha-0dcbd3d.sql
+│      │                 └── image tag — links backup to exact deployment
+│      └── timestamp — when backup was taken
+└── prefix — used by lifecycle rule to auto-expire after 30 days
+```
+
 ---
 
 ## Configuration (Ansible)
@@ -179,7 +192,7 @@ proxmox-silverbank/ansible/
 │   ├── db.yml                        # PostgreSQL vars
 │   └── monitoring.yml                # staging vars (uses local DB container)
 ├── roles/
-│   ├── common/                       # all VMs: Docker, UFW, node-exporter, timezone
+│   ├── common/                       # all VMs: Docker, UFW, node-exporter, AWS CLI, timezone
 │   ├── nginx/                        # edge: nginx + upstream config + switch script
 │   ├── postgres/                     # db: PostgreSQL 16 in Docker + persistent volume
 │   ├── app/                          # blue+green: pull images, write .env, start containers
@@ -198,11 +211,13 @@ proxmox-silverbank/ansible/
 
 | Role | Target VMs | What it does |
 |---|---|---|
-| `common` | All VMs | Docker, UFW firewall, node-exporter, packages, UTC timezone |
+| `common` | All VMs | Docker, UFW firewall, node-exporter, AWS CLI, packages, UTC timezone |
 | `nginx` | edge-nginx | Nginx, upstream config, Blue/Green switch script |
 | `postgres` | db-postgresql | PostgreSQL 16 in Docker, persistent volume |
 | `app` | blue, green | Pull Docker images from ghcr.io, write `.env`, start containers |
 | `monitoring` | monitoring-staging | Prometheus + Grafana + Loki stack |
+
+> **Note:** AWS CLI is installed via the `common` role so it is available on the self-hosted runner after any infrastructure rebuild — no manual steps required.
 
 ### Usage
 
@@ -282,29 +297,27 @@ The backend exposes `/api/health` which returns full deployment metadata:
 ```json
 {
   "status": "ok",
-  "timestamp": "2026-03-23T21:19:12.526Z",
+  "timestamp": "2026-03-25T22:00:00.000Z",
   "database": "connected",
   "version": "1.0.0",
   "environment": "blue",
-  "image_tag": "v1.1-sha-abc1234"
+  "image_tag": "v1.0-sha-abc1234"
 }
 ```
 
-This allows instant traceability — from a running container back to the exact git commit that produced it.
+This allows instant traceability — from a running container back to the exact git commit that produced it. The `environment` and `image_tag` fields are injected at deploy time by Ansible as environment variables.
 
 ---
-
-### CI/CD Tool Choice
-
-The project uses GitHub Actions instead of Jenkins. GitHub Actions eliminates 
-the need for a dedicated Jenkins server, provides Pipeline-as-Code natively 
-via YAML, and integrates directly with the container registry and repository. 
-The same pipeline principles apply — trigger-based workflows, parallel stages, 
-and deployment gates.
 
 ## CI/CD Pipelines (GitHub Actions)
 
 Three distinct pipelines covering the full software delivery lifecycle.
+
+### CI/CD Tool Choice
+
+The project uses **GitHub Actions** instead of Jenkins. GitHub Actions eliminates the need for a dedicated Jenkins server, provides Pipeline-as-Code natively via YAML, and integrates directly with the container registry and repository. The same pipeline principles apply — trigger-based workflows, parallel stages, and deployment gates.
+
+A **self-hosted runner** is installed on `monitoring-staging` (192.168.7.70). This is required because deployment jobs need direct SSH access to the internal `10.10.20.x` network — something a cloud-based runner cannot do.
 
 ### Branch Strategy
 
@@ -323,8 +336,8 @@ Three distinct pipelines covering the full software delivery lifecycle.
 ```
 lint (ESLint)
   ├── JWT Tests     ──► validates token generation and verification
-  ├── Auth Tests    ──► tests login and registration flows (Docker container)
-  └── Account Tests ──► tests account management (Docker container)
+  ├── Auth Tests    ──► tests login and registration flows
+  └── Account Tests ──► tests account management operations
 
 All 3 test suites run IN PARALLEL after lint passes.
 If any test fails → automatic comment posted on PR + merge blocked.
@@ -366,15 +379,22 @@ Staging uses an **isolated local PostgreSQL container** — it does not connect 
 
 ```
 Promote Image
-  (retag :staging → :v1.x-sha-{sha}, no rebuild — same artifact as staging)
+  (retag :staging → :v1.x-sha-{sha}, no rebuild)
     │
     ▼
 Manual Approval ⏳
-  (release manager reviews and approves via GitHub Environments)
+  (release manager approves via GitHub Environments)
     │
     ▼
 Detect Active Environment
   (SSH to edge-nginx → read /opt/current-env → identify BLUE or GREEN)
+  (defaults to green if file missing — e.g. after fresh rebuild)
+    │
+    ▼
+Backup Database to S3                          ← NEW
+  (pg_dump → scp to runner → upload to S3)
+  (filename: backup_{timestamp}_{image_tag}.sql)
+  (auto-deleted after 30 days via S3 lifecycle)
     │
     ▼
 Deploy to Idle Environment
@@ -385,18 +405,41 @@ Smoke Tests on Idle
   (direct HTTP to idle VM, bypassing nginx — no user impact)
     │
     ▼
-Switch Nginx Traffic
-  (/opt/switch-backend.sh [blue|green] → update upstream config → reload nginx)
+Switch Nginx Traffic                           ← now a separate job
+  (/opt/switch-backend.sh [blue|green])
     │
     ▼
-Monitor + Auto-Rollback
-  (10 minutes, health check every 30 seconds)
-    ├── stable → promote image to :latest → AWS DR ready
-    └── 3 consecutive failures → switch back to previous env → pipeline fails
+    ├── Monitor (10 minutes, every 30 seconds) ← runs in parallel
+    │     ├── stable → Production Health Check ✅
+    │     │             promote image to :latest
+    │     └── failed → Rollback              ← separate job, only if monitor fails
+    │                   switch back to previous env
+    │                   pipeline fails ❌
     │
     ▼
 Update AWS DR (suspended — activate manually for DR demo)
 ```
+
+#### Why separate Switch, Monitor, and Rollback into distinct jobs?
+
+Previously these three steps were combined in a single job `switch-monitor-rollback`. Separating them provides:
+
+- **Better visibility** — each step is clearly labelled in GitHub Actions UI
+- **Conditional execution** — rollback only runs if monitor fails (`if: needs.monitor.outputs.stable == 'false'`)
+- **Cleaner failure reporting** — you can see exactly which step caused the pipeline to fail
+
+#### Database Backup Design
+
+A `pg_dump` is taken **before every production deployment** and uploaded to S3:
+
+```
+s3://silverbank-tfstate-mariusiordan/db-backups/
+└── backup_20260325_221318_v1.0-sha-0dcbd3d.sql
+```
+
+The filename includes the image tag — so you always know which backup corresponds to which deployment. If a deployment goes wrong, you know exactly which backup to restore from.
+
+Backups are automatically deleted after 30 days via an S3 lifecycle rule.
 
 ### Required GitHub Secrets
 
@@ -405,17 +448,21 @@ Update AWS DR (suspended — activate manually for DR demo)
 | `GHCR_TOKEN` | GitHub PAT with `write:packages` permission |
 | `PROXMOX_SSH_KEY` | Private SSH key for Proxmox VMs |
 | `VAULT_PASSWORD` | Ansible Vault decryption password |
-| `AWS_ACCESS_KEY_ID` | AWS IAM credentials for Terraform |
-| `AWS_SECRET_ACCESS_KEY` | AWS IAM credentials for Terraform |
+| `AWS_ACCESS_KEY_ID` | AWS IAM credentials for S3 backup upload + Terraform |
+| `AWS_SECRET_ACCESS_KEY` | AWS IAM credentials for S3 backup upload + Terraform |
 
 ### Self-Hosted Runner
 
-All deployment jobs run on a self-hosted GitHub Actions runner installed on `monitoring-staging` (192.168.7.70). This gives the runner direct SSH access to all production VMs on the internal `10.10.20.x` network without exposing them to the internet.
+All deployment jobs run on a self-hosted GitHub Actions runner installed on `monitoring-staging` (192.168.7.70).
 
 ```bash
 # Check runner status
 ssh devop@192.168.7.70
 sudo systemctl status actions.runner.mariusiordan-SilverBank-App.monitoring-staging.service
+
+# Reinstall after full infrastructure rebuild
+# Go to GitHub → SilverBank-App → Settings → Actions → Runners → New runner
+sudo ./svc.sh install && sudo ./svc.sh start
 ```
 
 ---
@@ -427,10 +474,12 @@ Traffic is controlled by Nginx upstream configuration on the edge VM. Only one e
 ```nginx
 # Active configuration example (BLUE serving traffic)
 upstream app_frontend {
-    server 10.10.20.11:3000;   # BLUE frontend
+    server 10.10.20.11:3000;   # BLUE frontend — active
+    # server 10.10.20.12:3000; # GREEN frontend — inactive
 }
 upstream app_backend_api {
-    server 10.10.20.11:4000;   # BLUE backend API
+    server 10.10.20.11:4000;   # BLUE backend API — active
+    # server 10.10.20.12:4000; # GREEN backend API — inactive
 }
 ```
 
@@ -440,12 +489,13 @@ upstream app_backend_api {
 │                                                                      │
 │  1. Read /opt/current-env on edge → identify active environment      │
 │  2. Derive idle environment (opposite of active)                     │
-│  3. Deploy new images to IDLE VM (zero user impact)                  │
-│  4. Smoke test directly on IDLE (bypassing nginx)                    │
-│  5. Switch nginx upstreams → IDLE becomes LIVE                       │
+│  3. pg_dump database → upload to S3 (safety net)                    │
+│  4. Deploy new images to IDLE VM (zero user impact)                  │
+│  5. Smoke test directly on IDLE (bypassing nginx)                    │
+│  6. Switch nginx upstreams → IDLE becomes LIVE                       │
 │     /opt/switch-backend.sh [blue|green]                              │
-│  6. Monitor for 10 minutes (health check every 30 seconds)           │
-│     ✅ stable → promote to :latest, old env stays as instant fallback │
+│  7. Monitor for 10 minutes (health check every 30 seconds)           │
+│     ✅ stable → promote to :latest, old env stays as fallback        │
 │     ❌ 3 consecutive failures → auto-rollback to previous env        │
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -461,6 +511,9 @@ sudo /opt/switch-backend.sh blue     # route to BLUE (manual rollback)
 
 # Check active environment
 cat /opt/current-env
+
+# View switch history
+sudo cat /var/log/nginx/switches.log
 ```
 
 ### Ansible Playbooks
@@ -484,7 +537,7 @@ ansible-playbook playbooks/switch-traffic.yml \
   -e "idle_env=blue" \
   -i inventory.ini
 
-# Monitor + auto-rollback
+# Monitor + auto-rollback (10 minutes)
 ansible-playbook playbooks/rollback.yml \
   -e "app_tag=v1.0-sha-abc1234" \
   -e "new_env=blue" \
@@ -502,16 +555,17 @@ Prometheus, Grafana, and Loki run on the `monitoring-staging` VM. node-exporter 
 
 | Component | Port | Purpose |
 |---|---|---|
-| Prometheus | 9090 | Metrics collection and storage |
+| Prometheus | 9090 | Metrics collection and storage (scrapes every 15s) |
 | Grafana | 3001 | Dashboards and visualization |
 | Loki | 3100 | Log aggregation |
-| node-exporter | 9100 | System metrics (CPU, RAM, disk, network) |
+| node-exporter | 9100 | System metrics (CPU, RAM, disk, network) on all VMs |
 
 ### Access
 
 ```
 http://192.168.7.70:3001   # Grafana (admin / vault_grafana_password)
 http://192.168.7.70:9090   # Prometheus
+http://192.168.7.70:9090/targets  # verify all scrape targets are UP
 ```
 
 ### Scraped Targets
@@ -528,9 +582,12 @@ Prometheus scrapes node-exporter on all VMs every 15 seconds:
 
 Port 9100 is firewalled on each VM — only `192.168.7.70` (monitoring VM) can reach it.
 
-### Recommended Dashboard
+### Grafana Setup (after rebuild)
 
-Import dashboard ID `1860` (Node Exporter Full) from grafana.com for CPU, memory, disk, and network metrics per VM.
+1. Go to `http://192.168.7.70:3001` → Connections → Data Sources → Add → Prometheus
+2. URL: `http://localhost:9090` → Save & Test
+3. Dashboards → New → Import → ID `1860` → Load → Import
+4. Use the `nodename` dropdown to switch between VMs
 
 ---
 
@@ -544,6 +601,27 @@ The database runs on a dedicated VM with a persistent Docker volume. The applica
 db-postgresql (192.168.7.60 / 10.10.20.20)
   └── postgres:16-alpine container
       └── /opt/postgres/data (persistent volume — survives container restarts and VM reboots)
+```
+
+### Automated Backups
+
+Before every production deployment, a `pg_dump` is taken and uploaded to S3:
+
+```bash
+# Manual backup (same as what the pipeline does)
+ssh devop@192.168.7.60 \
+  "docker exec postgres pg_dump -U devop_db appdb > /tmp/backup_manual.sql"
+scp devop@192.168.7.60:/tmp/backup_manual.sql /tmp/backup_manual.sql
+aws s3 cp /tmp/backup_manual.sql \
+  s3://silverbank-tfstate-mariusiordan/db-backups/backup_manual.sql
+
+# List all backups in S3
+aws s3 ls s3://silverbank-tfstate-mariusiordan/db-backups/
+
+# Restore from a backup
+scp /tmp/backup.sql devop@192.168.7.60:/tmp/backup.sql
+ssh devop@192.168.7.60 \
+  "docker exec -i postgres psql -U devop_db appdb < /tmp/backup.sql"
 ```
 
 ### Staging DB
@@ -582,9 +660,12 @@ The DR environment starts with a clean database. The architecture supports data 
 This was intentionally not implemented: it requires the Proxmox host to have outbound internet access for S3 uploads, which introduces a network exposure that is not acceptable for a homelab environment at this stage. The implementation path is clear when the security posture allows it.
 
 Considered alternatives:
-- **pg_dump to S3** (hourly snapshots + restore on DR activation) — feasible, deferred for security reasons
-- **PostgreSQL streaming replication** over a VPN tunnel — enterprise-grade, appropriate at larger scale
-- **AWS DMS** (managed CDC replication) — ~$50/month, not justified for a DR-only environment
+
+| Approach | Notes |
+|---|---|
+| pg_dump to S3 (hourly) | Feasible — deferred for security reasons |
+| PostgreSQL streaming replication over VPN | Enterprise-grade, appropriate at larger scale |
+| AWS DMS (managed CDC) | ~$50/month, not justified for DR-only use |
 
 ### Activate DR
 
@@ -662,7 +743,7 @@ Secrets managed in vault:
 - Ansible >= 2.14
 - Docker with buildx
 - SSH key pair at `~/.ssh/id_ed25519`
-- AWS account with IAM credentials (for DR environment)
+- AWS account with IAM credentials
 
 ### 1. Clone the repos
 
@@ -704,22 +785,21 @@ ansible all -m ping -i inventory.ini
 ansible-playbook playbooks/site.yml -i inventory.ini
 ```
 
-### 6. Verify
+### 6. Reinstall GitHub Actions runner
+
+After a full rebuild, the self-hosted runner must be reinstalled:
+
+```bash
+# Go to GitHub → SilverBank-App → Settings → Actions → Runners → New runner
+# Follow the Linux x64 instructions, then:
+sudo ./svc.sh install && sudo ./svc.sh start
+```
+
+### 7. Verify
 
 ```bash
 curl http://192.168.7.50/api/health
-# → {"status":"ok","database":"connected","environment":"blue","image_tag":"v1.0-sha-abc1234"}
-```
-
-### Recommended SSH Config
-
-```
-# ~/.ssh/config
-Host 192.168.7.*
-    StrictHostKeyChecking no
-    UserKnownHostsFile /dev/null
-    User devop
-    IdentityFile ~/.ssh/id_ed25519
+# → {"status":"ok","database":"connected","environment":"blue","image_tag":"v1.0-sha-..."}
 ```
 
 ---
@@ -730,10 +810,12 @@ Host 192.168.7.*
 |---|---|---|
 | Blue VM down | `sudo /opt/switch-backend.sh green` on edge | ~5 seconds |
 | Green VM down | `sudo /opt/switch-backend.sh blue` on edge | ~5 seconds |
-| Bad deployment | Auto-rollback triggers after 3 failed health checks | ~1-3 minutes |
+| Bad deployment | Auto-rollback after 3 consecutive health check failures | ~1-3 minutes |
 | Edge nginx down | Start VM from Proxmox UI | ~2 minutes |
 | DB primary down | `ansible-playbook playbooks/db-failover.yml` | ~1 minute |
 | Full Proxmox failure | Activate AWS DR environment | ~15 minutes |
+| Runner lost after rebuild | Reinstall from GitHub Settings → Actions → Runners | ~5 minutes |
+| Restore DB from backup | `aws s3 cp` + `psql` restore | ~5 minutes |
 
 ---
 
@@ -743,7 +825,8 @@ Host 192.168.7.*
 |---|---|---|
 | Terraform — VM provisioning | Proxmox (5 VMs) | ✅ Done |
 | Terraform — AWS infrastructure + S3 state | AWS (3 VMs + VPC) | ✅ Done |
-| Common role (Docker, UFW, node-exporter, timezone) | All VMs | ✅ Done |
+| S3 lifecycle rule — db-backups 30 day retention | AWS S3 | ✅ Done |
+| Common role (Docker, UFW, node-exporter, AWS CLI) | All VMs | ✅ Done |
 | Nginx + Blue/Green switch script | edge-nginx | ✅ Done |
 | Nginx routing `/api/` → backend, `/` → frontend | edge-nginx | ✅ Done |
 | Frontend container (Next.js :3000) | prod-vm1-BLUE, prod-vm2-GREEN | ✅ Done |
@@ -754,20 +837,22 @@ Host 192.168.7.*
 | GitHub Actions (vs Jenkins) | Deliberate choice — documented above | ✅ Done |
 | Pipeline 1 — CI (lint + parallel tests + PR comment) | GitHub Actions | ✅ Done |
 | Pipeline 2 — Staging (build + push + deploy + integration tests) | GitHub Actions | ✅ Done |
-| Pipeline 3 — Production (promote + approve + Blue/Green + rollback) | GitHub Actions | ✅ Done |
-| Blue/Green auto-detection | deploy.yml | ✅ Done |
+| Pipeline 3 — Production (promote + approve + Blue/Green) | GitHub Actions | ✅ Done |
+| Database backup to S3 before every deployment | deploy.yml | ✅ Done |
+| Blue/Green auto-detection (default green after rebuild) | deploy.yml | ✅ Done |
 | Smoke tests before traffic switch | deploy.yml | ✅ Done |
-| Auto-rollback after 10 minutes monitoring | rollback.yml | ✅ Done |
+| Switch traffic — separate job | deploy.yml | ✅ Done |
+| Monitor (10 min) — separate job with stable output | deploy.yml | ✅ Done |
+| Rollback — separate job, only runs on monitor failure | deploy.yml | ✅ Done |
 | :latest promotion after stable deployment | rollback.yml | ✅ Done |
 | Image tag format — immutable, traceable (v1.x-sha-{git}) | ghcr.io | ✅ Done |
 | AWS DR — manual activation (~15 minutes RTO) | aws-silverbank | ✅ Done |
 | Terraform state in S3 + DynamoDB locking | aws-silverbank | ✅ Done |
-| Docker image cleanup before deploy | All deploy playbooks | ✅ Done |
-| Staging DB isolation (no production DB access) | monitoring.yml | ✅ Done |
 | Prometheus + Grafana + Loki | monitoring-staging | ✅ Done |
 | node-exporter on all VMs | All VMs | ✅ Done |
-| AWS DR auto-update from CI/CD | deploy.yml | ⏸ Suspended |
+| AWS DR auto-update from CI/CD | deploy.yml | ⏸️ Suspended |
 | SSL / Let's Encrypt | edge-nginx | 🔲 Planned |
+| DB sync Proxmox → AWS S3 (pg_dump scheduled) | aws-silverbank | 🔲 Planned |
 
 ---
 
@@ -780,6 +865,7 @@ terraform-ansible-infrastructure/
 │   ├── variables.tf
 │   ├── outputs.tf
 │   ├── ansible.tf
+│   ├── s3-lifecycle.tf            # S3 backup retention rules
 │   └── ansible/
 │       ├── ansible.cfg
 │       ├── inventory.ini          # auto-generated by Terraform
@@ -794,7 +880,7 @@ terraform-ansible-infrastructure/
 │       │   ├── db.yml
 │       │   └── monitoring.yml
 │       ├── roles/
-│       │   ├── common/
+│       │   ├── common/            # includes AWS CLI install
 │       │   ├── nginx/
 │       │   ├── postgres/
 │       │   ├── app/
@@ -810,11 +896,12 @@ terraform-ansible-infrastructure/
 ├── aws-silverbank/
 │   ├── terraform/
 │   │   ├── main.tf
-│   │   ├── versions.tf            # S3 backend configuration
+│   │   ├── versions.tf
+│   │   ├── s3-lifecycle.tf        # db-backups 30 day expiry
 │   │   ├── variables.tf
-│   │   ├── outputs.tf             # auto-generates inventory-aws.ini
+│   │   ├── outputs.tf
 │   │   └── bootstrap/
-│   │       └── main.tf            # creates S3 bucket + DynamoDB table
+│   │       └── main.tf
 │   └── ansible/
 │       ├── ansible.cfg
 │       ├── group_vars/
@@ -829,5 +916,5 @@ terraform-ansible-infrastructure/
 
 ---
 
-*App repository: [mariusiordan/SilverBank-App](https://github.com/mariusiordan/SilverBank-App)*  
+*App repository: [mariusiordan/SilverBank-App](https://github.com/mariusiordan/SilverBank-App)*
 *Infrastructure repository: [mariusiordan/DevOps-final-project](https://github.com/mariusiordan/DevOps-final-project)*
