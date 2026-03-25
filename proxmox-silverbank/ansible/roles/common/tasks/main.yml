@@ -65,3 +65,15 @@
       --path.sysfs=/host/sys \
       --path.rootfs=/rootfs
   ignore_errors: true
+
+- name: Install AWS CLI
+  become: true
+  shell: |
+    if ! /usr/local/bin/aws --version 2>/dev/null; then
+      curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+      apt-get install -y unzip
+      unzip -q /tmp/awscliv2.zip -d /tmp
+      /tmp/aws/install
+      rm -rf /tmp/aws /tmp/awscliv2.zip
+    fi
+  ignore_errors: true
