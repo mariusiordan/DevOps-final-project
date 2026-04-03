@@ -82,3 +82,6 @@ secrets.yml
 *.swo
 
 !silverbank-infrastructure.svg
+
+# Terraform sensitive values
+aws-silverbank-ec2/terraform/terraform-aws.tfvars
