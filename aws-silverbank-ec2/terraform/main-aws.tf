@@ -39,3 +39,16 @@ module "vpc" {
   project_name         = var.project_name
   environment          = var.environment
 }
+
+# ------------------------------------------------------------
+# Security Groups
+# ------------------------------------------------------------
+
+module "security" {
+  source = "./modules/security-aws"
+
+  vpc_id       = module.vpc.vpc_id
+  vpc_cidr     = module.vpc.vpc_cidr_block
+  project_name = var.project_name
+  environment  = var.environment
+}
