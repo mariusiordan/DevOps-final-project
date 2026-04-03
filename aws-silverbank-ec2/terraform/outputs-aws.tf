@@ -27,63 +27,63 @@ output "private_subnet_ids" {
 # ALB
 # ------------------------------------------------------------
 
-output "alb_dns_name" {
-  description = "Public DNS name of the ALB — use this to access the app"
-  value       = module.ec2_asg.alb_dns_name
-}
+# output "alb_dns_name" {
+#   description = "Public DNS name of the ALB — use this to access the app"
+#   value       = module.ec2_asg.alb_dns_name
+# }
 
-output "alb_zone_id" {
-  description = "Zone ID of the ALB — needed for Route53 alias records"
-  value       = module.ec2_asg.alb_zone_id
-}
+# output "alb_zone_id" {
+#   description = "Zone ID of the ALB — needed for Route53 alias records"
+#   value       = module.ec2_asg.alb_zone_id
+# }
 
-# ------------------------------------------------------------
-# Blue / Green Target Groups
-# ------------------------------------------------------------
+# # ------------------------------------------------------------
+# # Blue / Green Target Groups
+# # ------------------------------------------------------------
 
-output "blue_target_group_arn" {
-  description = "ARN of the Blue target group"
-  value       = module.ec2_asg.blue_target_group_arn
-}
+# output "blue_target_group_arn" {
+#   description = "ARN of the Blue target group"
+#   value       = module.ec2_asg.blue_target_group_arn
+# }
 
-output "green_target_group_arn" {
-  description = "ARN of the Green target group"
-  value       = module.ec2_asg.green_target_group_arn
-}
+# output "green_target_group_arn" {
+#   description = "ARN of the Green target group"
+#   value       = module.ec2_asg.green_target_group_arn
+# }
 
-# ------------------------------------------------------------
-# RDS
-# ------------------------------------------------------------
+# # ------------------------------------------------------------
+# # RDS
+# # ------------------------------------------------------------
 
-output "rds_endpoint" {
-  description = "RDS PostgreSQL endpoint — used in app DATABASE_URL"
-  value       = module.rds.rds_endpoint
-}
+# output "rds_endpoint" {
+#   description = "RDS PostgreSQL endpoint — used in app DATABASE_URL"
+#   value       = module.rds.rds_endpoint
+# }
 
-output "rds_port" {
-  description = "RDS PostgreSQL port"
-  value       = module.rds.rds_port
-}
+# output "rds_port" {
+#   description = "RDS PostgreSQL port"
+#   value       = module.rds.rds_port
+# }
 
-# ------------------------------------------------------------
-# ECR
-# ------------------------------------------------------------
+# # ------------------------------------------------------------
+# # ECR
+# # ------------------------------------------------------------
 
-output "ecr_repository_url" {
-  description = "ECR repository URL — used in GitHub Actions to push images"
-  value       = module.ecr.repository_url
-}
+# output "ecr_repository_url" {
+#   description = "ECR repository URL — used in GitHub Actions to push images"
+#   value       = module.ecr.repository_url
+# }
 
-# ------------------------------------------------------------
-# EC2 / ASG
-# ------------------------------------------------------------
+# # ------------------------------------------------------------
+# # EC2 / ASG
+# # ------------------------------------------------------------
 
-output "blue_asg_name" {
-  description = "Name of the Blue ASG — used in deployment pipeline"
-  value       = module.ec2_asg.blue_asg_name
-}
+# output "blue_asg_name" {
+#   description = "Name of the Blue ASG — used in deployment pipeline"
+#   value       = module.ec2_asg.blue_asg_name
+# }
 
-output "green_asg_name" {
-  description = "Name of the Green ASG — used in deployment pipeline"
-  value       = module.ec2_asg.green_asg_name
-}
+# output "green_asg_name" {
+#   description = "Name of the Green ASG — used in deployment pipeline"
+#   value       = module.ec2_asg.green_asg_name
+# }
