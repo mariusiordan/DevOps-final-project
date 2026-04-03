@@ -51,19 +51,19 @@ output "private_subnet_ids" {
 #   value       = module.ec2_asg.green_target_group_arn
 # }
 
-# # ------------------------------------------------------------
-# # RDS
-# # ------------------------------------------------------------
+# ------------------------------------------------------------
+# RDS
+# ------------------------------------------------------------
 
-# output "rds_endpoint" {
-#   description = "RDS PostgreSQL endpoint — used in app DATABASE_URL"
-#   value       = module.rds.rds_endpoint
-# }
+output "rds_endpoint" {
+  description = "RDS PostgreSQL endpoint — used in app DATABASE_URL"
+  value       = module.rds.rds_endpoint
+}
 
-# output "rds_port" {
-#   description = "RDS PostgreSQL port"
-#   value       = module.rds.rds_port
-# }
+output "rds_port" {
+  description = "RDS PostgreSQL port"
+  value       = module.rds.rds_port
+}
 
 # ------------------------------------------------------------
 # ECR
