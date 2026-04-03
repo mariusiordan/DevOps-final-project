@@ -6,6 +6,9 @@
 .terraform/
 .terraform.lock.hcl
 
+# Exception — track lock file for new AWS project
+!aws-silverbank-ec2/terraform/.terraform.lock.hcl
+
 # State files - may contain secrets in plain text
 terraform.tfstate
 terraform.tfstate.*
