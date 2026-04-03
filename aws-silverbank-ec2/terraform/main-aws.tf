@@ -52,3 +52,15 @@ module "security" {
   project_name = var.project_name
   environment  = var.environment
 }
+
+# ------------------------------------------------------------
+# ECR
+# ------------------------------------------------------------
+
+module "ecr" {
+  source = "./modules/ecr-aws"
+
+  repository_name = var.ecr_repository_name
+  project_name    = var.project_name
+  environment     = var.environment
+}

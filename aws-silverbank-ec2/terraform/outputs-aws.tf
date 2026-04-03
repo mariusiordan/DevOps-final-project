@@ -65,14 +65,14 @@ output "private_subnet_ids" {
 #   value       = module.rds.rds_port
 # }
 
-# # ------------------------------------------------------------
-# # ECR
-# # ------------------------------------------------------------
+# ------------------------------------------------------------
+# ECR
+# ------------------------------------------------------------
 
-# output "ecr_repository_url" {
-#   description = "ECR repository URL — used in GitHub Actions to push images"
-#   value       = module.ecr.repository_url
-# }
+output "ecr_repository_url" {
+  description = "ECR repository URL — used in GitHub Actions to push images"
+  value       = module.ecr.repository_url
+}
 
 # # ------------------------------------------------------------
 # # EC2 / ASG
