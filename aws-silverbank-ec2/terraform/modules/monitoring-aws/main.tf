@@ -234,6 +234,7 @@ resource "aws_cloudwatch_dashboard" "main" {
         height = 6
         properties = {
           title  = "EC2 CPU Utilization — Blue vs Green"
+          region = "eu-west-2"
           period = 300
           stat   = "Average"
           metrics = [
@@ -248,6 +249,7 @@ resource "aws_cloudwatch_dashboard" "main" {
         height = 6
         properties = {
           title  = "ALB — Request Count and 5xx Errors"
+          region = "eu-west-2"
           period = 300
           stat   = "Sum"
           metrics = [
@@ -262,6 +264,7 @@ resource "aws_cloudwatch_dashboard" "main" {
         height = 6
         properties = {
           title  = "ALB — Unhealthy Hosts"
+          region = "eu-west-2"
           period = 60
           stat   = "Average"
           metrics = [
@@ -276,6 +279,7 @@ resource "aws_cloudwatch_dashboard" "main" {
         height = 6
         properties = {
           title  = "RDS — CPU and Storage"
+          region = "eu-west-2"
           period = 300
           stat   = "Average"
           metrics = [
