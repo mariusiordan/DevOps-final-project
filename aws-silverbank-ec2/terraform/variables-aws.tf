@@ -131,3 +131,15 @@ variable "alarm_email" {
   description = "Email address for CloudWatch alarm notifications"
   type        = string
 }
+
+variable "jwt_secret" {
+  description = "JWT secret for production backend"
+  type        = string
+  sensitive   = true
+}
+
+variable "jwt_refresh_secret" {
+  description = "JWT refresh secret for production backend"
+  type        = string
+  sensitive   = true
+}

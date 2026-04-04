@@ -62,9 +62,37 @@ variable "asg_idle_desired" {
   type        = number
 }
 
-variable "ecr_repository_url" {
-  description = "ECR repository URL — used in user data to pull images"
+variable "ecr_frontend_url" {
+  description = "ECR frontend repository URL"
   type        = string
+}
+
+variable "ecr_backend_url" {
+  description = "ECR backend repository URL"
+  type        = string
+}
+
+variable "jwt_secret" {
+  description = "JWT secret for the backend"
+  type        = string
+  sensitive   = true
+}
+
+variable "jwt_refresh_secret" {
+  description = "JWT refresh secret for the backend"
+  type        = string
+  sensitive   = true
+}
+
+variable "alb_dns_name" {
+  description = "ALB DNS name — passed to frontend as NEXT_PUBLIC_API_URL"
+  type        = string
+}
+
+variable "image_tag" {
+  description = "Docker image tag to deploy"
+  type        = string
+  default     = "latest"
 }
 
 variable "rds_endpoint" {

@@ -170,13 +170,18 @@ resource "aws_launch_template" "blue" {
   }
 
   user_data = base64encode(templatefile("${path.module}/user-data.sh", {
-    ecr_repository_url = var.ecr_repository_url
+    ecr_frontend_url   = var.ecr_frontend_url
+    ecr_backend_url    = var.ecr_backend_url
     aws_region         = var.aws_region
     db_name            = var.db_name
     db_username        = var.db_username
     db_password        = var.db_password
     rds_endpoint       = var.rds_endpoint
-    environment        = "blue"
+    jwt_secret         = var.jwt_secret
+    jwt_refresh_secret = var.jwt_refresh_secret
+    alb_dns_name       = var.alb_dns_name
+    environment        = "green"
+    image_tag          = "latest"
   }))
 
   tag_specifications {
@@ -205,13 +210,18 @@ resource "aws_launch_template" "green" {
   }
 
   user_data = base64encode(templatefile("${path.module}/user-data.sh", {
-    ecr_repository_url = var.ecr_repository_url
+    ecr_frontend_url   = var.ecr_frontend_url
+    ecr_backend_url    = var.ecr_backend_url
     aws_region         = var.aws_region
     db_name            = var.db_name
     db_username        = var.db_username
     db_password        = var.db_password
     rds_endpoint       = var.rds_endpoint
+    jwt_secret         = var.jwt_secret
+    jwt_refresh_secret = var.jwt_refresh_secret
+    alb_dns_name       = var.alb_dns_name
     environment        = "green"
+    image_tag          = "latest"
   }))
 
   tag_specifications {

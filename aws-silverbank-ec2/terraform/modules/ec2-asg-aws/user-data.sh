@@ -2,7 +2,7 @@
 # ============================================================
 # user-data.sh
 # Runs on EC2 instance first boot — Ubuntu 24.04 LTS
-# Installs Docker, pulls SilverBank image from ECR, starts app
+# Installs Docker, pulls SilverBank images from ECR, starts app
 # ============================================================
 
 set -e
@@ -26,7 +26,7 @@ echo \
   tee /etc/apt/sources.list.d/docker.list > /dev/null
 
 apt-get update -y
-apt-get install -y docker-ce docker-ce-cli containerd.io
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 
 systemctl enable docker
 systemctl start docker
@@ -41,21 +41,49 @@ rm -rf awscliv2.zip aws/
 # 2. Log into ECR
 # ------------------------------------------------------------
 aws ecr get-login-password --region ${aws_region} | \
-  docker login --username AWS --password-stdin ${ecr_repository_url}
+  docker login --username AWS --password-stdin ${ecr_frontend_url}
 
 # ------------------------------------------------------------
-# 3. Pull the latest stable image
+# 3. Pull images
 # ------------------------------------------------------------
-docker pull ${ecr_repository_url}:latest
+docker pull ${ecr_frontend_url}:${image_tag}
+docker pull ${ecr_backend_url}:${image_tag}
 
 # ------------------------------------------------------------
-# 4. Start the container
+# 4. Create docker-compose file
 # ------------------------------------------------------------
-docker run -d \
-  --name silverbank-${environment} \
-  --restart unless-stopped \
-  -p 3000:3000 \
-  -e NODE_ENV=production \
-  -e ENVIRONMENT=${environment} \
-  -e DATABASE_URL="postgresql://${db_username}:${db_password}@${rds_endpoint}/${db_name}" \
-  ${ecr_repository_url}:latest
+mkdir -p /opt/silverbank
+
+cat > /opt/silverbank/docker-compose.yml << EOF
+services:
+  frontend:
+    image: ${ecr_frontend_url}:${image_tag}
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - ENVIRONMENT=${environment}
+      - NEXT_PUBLIC_API_URL=http://${alb_dns_name}
+    depends_on:
+      - backend
+
+  backend:
+    image: ${ecr_backend_url}:${image_tag}
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+      - ENVIRONMENT=${environment}
+      - DATABASE_URL=postgresql://${db_username}:${db_password}@${rds_endpoint}/${db_name}
+      - JWT_SECRET=${jwt_secret}
+      - JWT_REFRESH_SECRET=${jwt_refresh_secret}
+      - PORT=4000
+EOF
+
+# ------------------------------------------------------------
+# 5. Start containers
+# ------------------------------------------------------------
+cd /opt/silverbank
+docker compose up -d

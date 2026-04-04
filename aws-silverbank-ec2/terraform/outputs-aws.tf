@@ -69,9 +69,14 @@ output "rds_port" {
 # ECR
 # ------------------------------------------------------------
 
-output "ecr_repository_url" {
-  description = "ECR repository URL — used in GitHub Actions to push images"
-  value       = module.ecr.repository_url
+output "ecr_frontend_url" {
+  description = "ECR frontend repository URL"
+  value       = module.ecr.frontend_repository_url
+}
+
+output "ecr_backend_url" {
+  description = "ECR backend repository URL"
+  value       = module.ecr.backend_repository_url
 }
 
 # ------------------------------------------------------------
