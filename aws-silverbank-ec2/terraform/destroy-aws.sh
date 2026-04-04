@@ -1,4 +1,3 @@
-cat > aws-silverbank-ec2/terraform/destroy-aws.sh << 'EOF'
 #!/bin/bash
 # ============================================================
 # destroy-aws.sh
@@ -93,4 +92,3 @@ echo "============================================"
 echo "✅ Infrastructure destroyed successfully"
 echo "✅ Costs have stopped"
 echo "============================================"
-EOF
