@@ -23,8 +23,21 @@ if [ "$CONFIRM" != "yes" ]; then
   exit 0
 fi
 
+echo "Step 1 — Scaling down ASGs to 0 to prevent new instance launches..."
+for ASG in silverbank-blue-asg-production silverbank-green-asg-production; do
+  aws autoscaling update-auto-scaling-group \
+    --auto-scaling-group-name ${ASG} \
+    --min-size 0 --max-size 0 --desired-capacity 0 \
+    --region eu-west-2 2>/dev/null && \
+    echo "✅ ${ASG} scaled to 0" || \
+    echo "⚠️  ${ASG} not found — skipping"
+done
+
+echo "Waiting 60s for instances to terminate..."
+sleep 60
+
 echo ""
-echo "Step 1 — Disabling RDS deletion protection..."
+echo "Step 2 — Disabling RDS deletion protection..."
 RDS_ID=$(terraform output -raw rds_endpoint | cut -d'.' -f1 2>/dev/null || echo "")
 
 if [ -n "$RDS_ID" ]; then
@@ -45,7 +58,7 @@ else
 fi
 
 echo ""
-echo "Step 2 — Disabling ALB deletion protection..."
+echo "Step 3 — Disabling ALB deletion protection..."
 ALB_ARN=$(aws elbv2 describe-load-balancers \
   --names silverbank-alb-production \
   --query 'LoadBalancers[0].LoadBalancerArn' \
@@ -63,7 +76,7 @@ else
 fi
 
 echo ""
-echo "Step 3 — Deleting ECR images before destroy..."
+echo "Step 4 — Deleting ECR images before destroy..."
 for REPO in silverbank-app-frontend silverbank-app-backend; do
   echo "Clearing ECR repository: ${REPO}..."
   IMAGE_IDS=$(aws ecr list-images \
@@ -84,7 +97,7 @@ for REPO in silverbank-app-frontend silverbank-app-backend; do
 done
 
 echo ""
-echo "Step 4 — Running terraform destroy..."
+echo "Step 5 — Running terraform destroy..."
 terraform destroy -var-file="terraform-aws.tfvars" -auto-approve
 
 echo ""
