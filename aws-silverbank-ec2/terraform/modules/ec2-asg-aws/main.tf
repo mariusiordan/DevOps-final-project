@@ -233,7 +233,7 @@ resource "aws_autoscaling_group" "blue" {
   name                = "${var.project_name}-blue-asg-${var.environment}"
   min_size            = var.asg_min_size
   max_size            = var.asg_max_size
-  desired_capacity    = var.asg_desired_capacity
+  desired_capacity    = var.asg_active_desired
   vpc_zone_identifier = var.private_subnet_ids
   target_group_arns   = [aws_lb_target_group.blue.arn]
 
@@ -268,7 +268,7 @@ resource "aws_autoscaling_group" "green" {
   name                = "${var.project_name}-green-asg-${var.environment}"
   min_size            = var.asg_min_size
   max_size            = var.asg_max_size
-  desired_capacity    = var.asg_desired_capacity
+  desired_capacity    = var.asg_idle_desired
   vpc_zone_identifier = var.private_subnet_ids
   target_group_arns   = [aws_lb_target_group.green.arn]
 

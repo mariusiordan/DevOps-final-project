@@ -63,22 +63,30 @@ variable "instance_type" {
   default     = "t3.micro"
 }
 
+# variables-aws.tf — update these defaults
+
+variable "asg_active_desired" {
+  description = "Desired instances for the active color"
+  type        = number
+  default     = 2
+}
+
+variable "asg_idle_desired" {
+  description = "Desired instances for the idle color"
+  type        = number
+  default     = 1
+}
+
 variable "asg_min_size" {
-  description = "Minimum number of EC2 instances in the ASG"
+  description = "Minimum instances — never go below this"
   type        = number
   default     = 1
 }
 
 variable "asg_max_size" {
-  description = "Maximum number of EC2 instances the ASG can scale to"
+  description = "Maximum instances — cap for scaling"
   type        = number
   default     = 3
-}
-
-variable "asg_desired_capacity" {
-  description = "Desired number of EC2 instances running at any time"
-  type        = number
-  default     = 2
 }
 
 # ------------------------------------------------------------

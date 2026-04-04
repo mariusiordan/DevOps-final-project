@@ -48,12 +48,17 @@ variable "asg_min_size" {
 }
 
 variable "asg_max_size" {
-  description = "Maximum number of EC2 instances in the ASG"
+  description = "Maximum number of EC2 instances the ASG can scale to"
   type        = number
 }
 
-variable "asg_desired_capacity" {
-  description = "Desired number of EC2 instances"
+variable "asg_active_desired" {
+  description = "Desired instances for the active color"
+  type        = number
+}
+
+variable "asg_idle_desired" {
+  description = "Desired instances for the idle color"
   type        = number
 }
 
