@@ -118,3 +118,8 @@ variable "ecr_repository_name" {
   type        = string
   default     = "silverbank-app"
 }
+
+variable "alarm_email" {
+  description = "Email address for CloudWatch alarm notifications"
+  type        = string
+}

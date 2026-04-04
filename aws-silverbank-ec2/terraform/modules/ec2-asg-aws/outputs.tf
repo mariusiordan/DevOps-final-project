@@ -41,3 +41,18 @@ output "green_asg_name" {
   description = "Name of the Green ASG"
   value       = aws_autoscaling_group.green.name
 }
+
+output "alb_arn_suffix" {
+  description = "ALB ARN suffix — used in CloudWatch metric dimensions"
+  value       = aws_lb.main.arn_suffix
+}
+
+output "blue_tg_arn_suffix" {
+  description = "Blue target group ARN suffix"
+  value       = aws_lb_target_group.blue.arn_suffix
+}
+
+output "green_tg_arn_suffix" {
+  description = "Green target group ARN suffix"
+  value       = aws_lb_target_group.green.arn_suffix
+}
