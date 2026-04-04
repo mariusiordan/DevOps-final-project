@@ -88,3 +88,6 @@ secrets.yml
 
 # Terraform sensitive values
 aws-silverbank-ec2/terraform/terraform-aws.tfvars
+
+# Terraform plan output
+tfplan
