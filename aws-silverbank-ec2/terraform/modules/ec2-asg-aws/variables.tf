@@ -120,3 +120,8 @@ variable "aws_region" {
   description = "AWS region — used in user data for ECR login"
   type        = string
 }
+
+variable "staging_ssh_public_key" {
+  description = "SSH public key for ephemeral staging EC2"
+  type        = string
+}

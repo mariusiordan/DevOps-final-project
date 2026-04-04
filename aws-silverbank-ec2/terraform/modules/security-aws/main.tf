@@ -117,3 +117,51 @@ resource "aws_security_group" "rds" {
     Environment = var.environment
   }
 }
+# ------------------------------------------------------------
+# Staging Security Group
+# Ephemeral EC2 for integration tests in Pipeline 2
+# Public subnet — GitHub Actions runner must reach it directly
+# Destroyed after every pipeline run
+# ------------------------------------------------------------
+resource "aws_security_group" "staging" {
+  name        = "${var.project_name}-staging-sg-${var.environment}"
+  description = "Security group for ephemeral staging EC2"
+  vpc_id      = var.vpc_id
+
+  ingress {
+    description = "SSH from GitHub Actions runner IPs"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "Frontend"
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "Backend"
+    from_port   = 4000
+    to_port     = 4000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name        = "${var.project_name}-staging-sg-${var.environment}"
+    Project     = var.project_name
+    Environment = var.environment
+  }
+}

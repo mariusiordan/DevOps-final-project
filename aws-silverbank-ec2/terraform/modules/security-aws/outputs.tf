@@ -17,3 +17,8 @@ output "rds_sg_id" {
   description = "Security group ID for RDS"
   value       = aws_security_group.rds.id
 }
+
+output "staging_sg_id" {
+  description = "Security group ID for ephemeral staging EC2"
+  value       = aws_security_group.staging.id
+}

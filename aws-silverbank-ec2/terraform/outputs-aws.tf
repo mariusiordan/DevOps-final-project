@@ -92,3 +92,22 @@ output "green_asg_name" {
   description = "Name of the Green ASG — used in deployment pipeline"
   value       = module.ec2_asg.green_asg_name
 }
+
+# ------------------------------------------------------------
+# Staging — ephemeral EC2 for integration tests
+# ------------------------------------------------------------
+
+output "staging_sg_id" {
+  description = "Security group ID for ephemeral staging EC2"
+  value       = module.security.staging_sg_id
+}
+
+output "staging_subnet_id" {
+  description = "Public subnet ID for ephemeral staging EC2"
+  value       = module.vpc.public_subnet_ids[0]
+}
+
+output "staging_key_pair_name" {
+  description = "SSH key pair name for staging EC2"
+  value       = module.ec2_asg.staging_key_pair_name
+}

@@ -56,3 +56,8 @@ output "green_tg_arn_suffix" {
   description = "Green target group ARN suffix"
   value       = aws_lb_target_group.green.arn_suffix
 }
+
+output "staging_key_pair_name" {
+  description = "SSH key pair name for staging EC2"
+  value       = aws_key_pair.staging.key_name
+}

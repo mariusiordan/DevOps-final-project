@@ -89,28 +89,29 @@ module "rds" {
 module "ec2_asg" {
   source = "./modules/ec2-asg-aws"
 
-  project_name       = var.project_name
-  environment        = var.environment
-  vpc_id             = module.vpc.vpc_id
-  public_subnet_ids  = module.vpc.public_subnet_ids
-  private_subnet_ids = module.vpc.private_subnet_ids
-  alb_sg_id          = module.security.alb_sg_id
-  ec2_sg_id          = module.security.ec2_sg_id
-  instance_type      = var.instance_type
-  asg_min_size       = var.asg_min_size
-  asg_max_size       = var.asg_max_size
-  asg_active_desired = var.asg_active_desired
-  asg_idle_desired   = var.asg_idle_desired
-  ecr_frontend_url   = module.ecr.frontend_repository_url
-  ecr_backend_url    = module.ecr.backend_repository_url
-  rds_endpoint       = module.rds.rds_endpoint
-  db_name            = var.db_name
-  db_username        = var.db_username
-  db_password        = var.db_password
-  jwt_secret         = var.jwt_secret
-  jwt_refresh_secret = var.jwt_refresh_secret
-  alb_dns_name       = module.ec2_asg.alb_dns_name
-  aws_region         = var.aws_region
+  project_name           = var.project_name
+  environment            = var.environment
+  vpc_id                 = module.vpc.vpc_id
+  public_subnet_ids      = module.vpc.public_subnet_ids
+  private_subnet_ids     = module.vpc.private_subnet_ids
+  alb_sg_id              = module.security.alb_sg_id
+  ec2_sg_id              = module.security.ec2_sg_id
+  instance_type          = var.instance_type
+  asg_min_size           = var.asg_min_size
+  asg_max_size           = var.asg_max_size
+  asg_active_desired     = var.asg_active_desired
+  asg_idle_desired       = var.asg_idle_desired
+  ecr_frontend_url       = module.ecr.frontend_repository_url
+  ecr_backend_url        = module.ecr.backend_repository_url
+  rds_endpoint           = module.rds.rds_endpoint
+  db_name                = var.db_name
+  db_username            = var.db_username
+  db_password            = var.db_password
+  jwt_secret             = var.jwt_secret
+  jwt_refresh_secret     = var.jwt_refresh_secret
+  alb_dns_name           = module.ec2_asg.alb_dns_name
+  aws_region             = var.aws_region
+  staging_ssh_public_key = var.staging_ssh_public_key
 }
 
 # ------------------------------------------------------------

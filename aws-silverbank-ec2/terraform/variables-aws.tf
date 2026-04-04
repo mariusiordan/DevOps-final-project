@@ -143,3 +143,8 @@ variable "jwt_refresh_secret" {
   type        = string
   sensitive   = true
 }
+
+variable "staging_ssh_public_key" {
+  description = "SSH public key for ephemeral staging EC2"
+  type        = string
+}

@@ -308,3 +308,18 @@ resource "aws_autoscaling_group" "green" {
     propagate_at_launch = true
   }
 }
+
+# ------------------------------------------------------------
+# SSH Key Pair — for ephemeral staging EC2
+# ------------------------------------------------------------
+
+resource "aws_key_pair" "staging" {
+  key_name   = "${var.project_name}-staging-key-${var.environment}"
+  public_key = var.staging_ssh_public_key
+
+  tags = {
+    Name        = "${var.project_name}-staging-key-${var.environment}"
+    Project     = var.project_name
+    Environment = var.environment
+  }
+}
