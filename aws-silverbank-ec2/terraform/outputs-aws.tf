@@ -56,7 +56,7 @@ output "green_target_group_arn" {
 # ------------------------------------------------------------
 
 output "rds_endpoint" {
-  description = "RDS PostgreSQL endpoint — used in app DATABASE_URL"
+  description = "RDS PostgreSQL endpoint"
   value       = module.rds.rds_endpoint
 }
 
