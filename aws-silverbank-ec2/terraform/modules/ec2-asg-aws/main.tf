@@ -179,7 +179,6 @@ resource "aws_launch_template" "blue" {
     rds_endpoint       = var.rds_endpoint
     jwt_secret         = var.jwt_secret
     jwt_refresh_secret = var.jwt_refresh_secret
-    alb_dns_name       = var.alb_dns_name
     environment        = "green"
     image_tag          = "latest"
   }))
@@ -219,7 +218,6 @@ resource "aws_launch_template" "green" {
     rds_endpoint       = var.rds_endpoint
     jwt_secret         = var.jwt_secret
     jwt_refresh_secret = var.jwt_refresh_secret
-    alb_dns_name       = var.alb_dns_name
     environment        = "green"
     image_tag          = "latest"
   }))
@@ -307,6 +305,43 @@ resource "aws_autoscaling_group" "green" {
     value               = "green"
     propagate_at_launch = true
   }
+}
+
+# ------------------------------------------------------------
+# Auto Scaling Policies — Blue ASG
+# Scale up when CPU > 80%, scale down when CPU < 40%
+# ------------------------------------------------------------
+
+resource "aws_autoscaling_policy" "blue_scale_up" {
+  name                   = "${var.project_name}-blue-scale-up-${var.environment}"
+  autoscaling_group_name = aws_autoscaling_group.blue.name
+  adjustment_type        = "ChangeInCapacity"
+  scaling_adjustment     = 1
+  cooldown               = 300
+}
+
+resource "aws_autoscaling_policy" "blue_scale_down" {
+  name                   = "${var.project_name}-blue-scale-down-${var.environment}"
+  autoscaling_group_name = aws_autoscaling_group.blue.name
+  adjustment_type        = "ChangeInCapacity"
+  scaling_adjustment     = -1
+  cooldown               = 300
+}
+
+resource "aws_autoscaling_policy" "green_scale_up" {
+  name                   = "${var.project_name}-green-scale-up-${var.environment}"
+  autoscaling_group_name = aws_autoscaling_group.green.name
+  adjustment_type        = "ChangeInCapacity"
+  scaling_adjustment     = 1
+  cooldown               = 300
+}
+
+resource "aws_autoscaling_policy" "green_scale_down" {
+  name                   = "${var.project_name}-green-scale-down-${var.environment}"
+  autoscaling_group_name = aws_autoscaling_group.green.name
+  adjustment_type        = "ChangeInCapacity"
+  scaling_adjustment     = -1
+  cooldown               = 300
 }
 
 # ------------------------------------------------------------

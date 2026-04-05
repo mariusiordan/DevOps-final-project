@@ -61,3 +61,23 @@ output "staging_key_pair_name" {
   description = "SSH key pair name for staging EC2"
   value       = aws_key_pair.staging.key_name
 }
+
+output "blue_scale_up_policy_arn" {
+  description = "Blue ASG scale up policy ARN"
+  value       = aws_autoscaling_policy.blue_scale_up.arn
+}
+
+output "blue_scale_down_policy_arn" {
+  description = "Blue ASG scale down policy ARN"
+  value       = aws_autoscaling_policy.blue_scale_down.arn
+}
+
+output "green_scale_up_policy_arn" {
+  description = "Green ASG scale up policy ARN"
+  value       = aws_autoscaling_policy.green_scale_up.arn
+}
+
+output "green_scale_down_policy_arn" {
+  description = "Green ASG scale down policy ARN"
+  value       = aws_autoscaling_policy.green_scale_down.arn
+}

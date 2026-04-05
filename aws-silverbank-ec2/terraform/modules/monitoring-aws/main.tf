@@ -29,7 +29,7 @@ resource "aws_sns_topic_subscription" "email" {
 
 resource "aws_cloudwatch_metric_alarm" "blue_cpu_high" {
   alarm_name          = "${var.project_name}-blue-cpu-high-${var.environment}"
-  alarm_description   = "Blue ASG CPU utilization is above 80%"
+  alarm_description   = "Blue ASG CPU above 80% — scale up"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 2
   metric_name         = "CPUUtilization"
@@ -43,8 +43,11 @@ resource "aws_cloudwatch_metric_alarm" "blue_cpu_high" {
     AutoScalingGroupName = var.blue_asg_name
   }
 
-  alarm_actions = [aws_sns_topic.alarms.arn]
-  ok_actions    = [aws_sns_topic.alarms.arn]
+  alarm_actions = [
+    aws_sns_topic.alarms.arn,
+    var.blue_scale_up_policy_arn
+  ]
+  ok_actions = [aws_sns_topic.alarms.arn]
 
   tags = {
     Name        = "${var.project_name}-blue-cpu-high-${var.environment}"
@@ -53,9 +56,35 @@ resource "aws_cloudwatch_metric_alarm" "blue_cpu_high" {
   }
 }
 
+resource "aws_cloudwatch_metric_alarm" "blue_cpu_low" {
+  alarm_name          = "${var.project_name}-blue-cpu-low-${var.environment}"
+  alarm_description   = "Blue ASG CPU below 40% — scale down"
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = 300
+  statistic           = "Average"
+  threshold           = 40
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    AutoScalingGroupName = var.blue_asg_name
+  }
+
+  alarm_actions = [var.blue_scale_down_policy_arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
+
+  tags = {
+    Name        = "${var.project_name}-blue-cpu-low-${var.environment}"
+    Project     = var.project_name
+    Environment = var.environment
+  }
+}
+
 resource "aws_cloudwatch_metric_alarm" "green_cpu_high" {
   alarm_name          = "${var.project_name}-green-cpu-high-${var.environment}"
-  alarm_description   = "Green ASG CPU utilization is above 80%"
+  alarm_description   = "Green ASG CPU above 80% — scale up"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 2
   metric_name         = "CPUUtilization"
@@ -69,11 +98,40 @@ resource "aws_cloudwatch_metric_alarm" "green_cpu_high" {
     AutoScalingGroupName = var.green_asg_name
   }
 
-  alarm_actions = [aws_sns_topic.alarms.arn]
-  ok_actions    = [aws_sns_topic.alarms.arn]
+  alarm_actions = [
+    aws_sns_topic.alarms.arn,
+    var.green_scale_up_policy_arn
+  ]
+  ok_actions = [aws_sns_topic.alarms.arn]
 
   tags = {
     Name        = "${var.project_name}-green-cpu-high-${var.environment}"
+    Project     = var.project_name
+    Environment = var.environment
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "green_cpu_low" {
+  alarm_name          = "${var.project_name}-green-cpu-low-${var.environment}"
+  alarm_description   = "Green ASG CPU below 40% — scale down"
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = 300
+  statistic           = "Average"
+  threshold           = 40
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    AutoScalingGroupName = var.green_asg_name
+  }
+
+  alarm_actions = [var.green_scale_down_policy_arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
+
+  tags = {
+    Name        = "${var.project_name}-green-cpu-low-${var.environment}"
     Project     = var.project_name
     Environment = var.environment
   }

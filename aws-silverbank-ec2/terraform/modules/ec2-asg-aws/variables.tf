@@ -84,10 +84,10 @@ variable "jwt_refresh_secret" {
   sensitive   = true
 }
 
-variable "alb_dns_name" {
-  description = "ALB DNS name — passed to frontend as NEXT_PUBLIC_API_URL"
-  type        = string
-}
+# variable "alb_dns_name" {
+#   description = "ALB DNS name — passed to frontend as NEXT_PUBLIC_API_URL"
+#   type        = string
+# }
 
 variable "image_tag" {
   description = "Docker image tag to deploy"

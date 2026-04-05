@@ -109,7 +109,6 @@ module "ec2_asg" {
   db_password            = var.db_password
   jwt_secret             = var.jwt_secret
   jwt_refresh_secret     = var.jwt_refresh_secret
-  alb_dns_name           = module.ec2_asg.alb_dns_name
   aws_region             = var.aws_region
   staging_ssh_public_key = var.staging_ssh_public_key
 }
@@ -121,14 +120,18 @@ module "ec2_asg" {
 module "monitoring" {
   source = "./modules/monitoring-aws"
 
-  project_name        = var.project_name
-  environment         = var.environment
-  alb_arn_suffix      = module.ec2_asg.alb_arn_suffix
-  blue_tg_arn_suffix  = module.ec2_asg.blue_tg_arn_suffix
-  green_tg_arn_suffix = module.ec2_asg.green_tg_arn_suffix
-  blue_asg_name       = module.ec2_asg.blue_asg_name
-  green_asg_name      = module.ec2_asg.green_asg_name
-  rds_instance_id     = module.rds.rds_instance_id
-  alarm_email         = var.alarm_email
+  project_name                = var.project_name
+  environment                 = var.environment
+  alb_arn_suffix              = module.ec2_asg.alb_arn_suffix
+  blue_tg_arn_suffix          = module.ec2_asg.blue_tg_arn_suffix
+  green_tg_arn_suffix         = module.ec2_asg.green_tg_arn_suffix
+  blue_asg_name               = module.ec2_asg.blue_asg_name
+  green_asg_name              = module.ec2_asg.green_asg_name
+  rds_instance_id             = module.rds.rds_instance_id
+  alarm_email                 = var.alarm_email
+  blue_scale_up_policy_arn    = module.ec2_asg.blue_scale_up_policy_arn
+  blue_scale_down_policy_arn  = module.ec2_asg.blue_scale_down_policy_arn
+  green_scale_up_policy_arn   = module.ec2_asg.green_scale_up_policy_arn
+  green_scale_down_policy_arn = module.ec2_asg.green_scale_down_policy_arn
 }
 

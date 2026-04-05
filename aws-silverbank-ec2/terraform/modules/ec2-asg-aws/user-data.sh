@@ -64,7 +64,6 @@ services:
     environment:
       - NODE_ENV=production
       - ENVIRONMENT=${environment}
-      - NEXT_PUBLIC_API_URL=http://${alb_dns_name}
     depends_on:
       - backend
 

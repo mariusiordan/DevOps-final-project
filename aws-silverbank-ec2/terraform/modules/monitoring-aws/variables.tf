@@ -46,3 +46,23 @@ variable "alarm_email" {
   description = "Email address to receive CloudWatch alarm notifications"
   type        = string
 }
+
+variable "blue_scale_up_policy_arn" {
+  description = "Blue ASG scale up policy ARN"
+  type        = string
+}
+
+variable "blue_scale_down_policy_arn" {
+  description = "Blue ASG scale down policy ARN"
+  type        = string
+}
+
+variable "green_scale_up_policy_arn" {
+  description = "Green ASG scale up policy ARN"
+  type        = string
+}
+
+variable "green_scale_down_policy_arn" {
+  description = "Green ASG scale down policy ARN"
+  type        = string
+}
