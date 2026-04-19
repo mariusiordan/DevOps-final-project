@@ -76,7 +76,16 @@ else
 fi
 
 echo ""
-echo "Step 4 — Deleting ECR images before destroy..."
+echo "Step 4 — Deleting old RDS final snapshot if exists..."
+aws rds delete-db-snapshot \
+  --db-snapshot-identifier silverbank-db-final-snapshot \
+  --region eu-west-2 2>/dev/null && \
+  echo "✅ Old snapshot deleted" || \
+  echo "⚠️  No existing snapshot found — skipping"
+
+echo "Waiting for snapshot deletion..."
+sleep 10
+echo "Step 4.1 — Deleting ECR images before destroy..."
 for REPO in silverbank-app-frontend silverbank-app-backend; do
   echo "Clearing ECR repository: ${REPO}..."
   IMAGE_IDS=$(aws ecr list-images \

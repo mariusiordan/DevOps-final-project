@@ -1,0 +1,13 @@
+# Secrets - never commit these
+terraform.tfvars
+
+# Terraform generated files
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+
+# Ansible auto-generated files - created by Terraform outputs
+../ansible/inventory-aws.ini
+../ansible/group_vars/all/main.yml
+../ansible/group_vars/prod.yml149.13.
