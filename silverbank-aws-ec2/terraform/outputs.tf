@@ -101,6 +101,9 @@ resource "local_file" "group_vars_all" {
     app_port_frontend: 3000
     app_port_backend: 4000
 
+    # Database name (same value used in postgres role and app role)
+    db_name: "appdb"
+
     # IPs - auto-updated on every terraform apply
     edge_ip: "${aws_eip.edge.public_ip}"
     blue_ip: "${aws_instance.blue.private_ip}"

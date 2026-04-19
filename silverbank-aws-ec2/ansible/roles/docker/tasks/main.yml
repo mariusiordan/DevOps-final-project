@@ -1,0 +1,102 @@
+---
+# ============================================================
+# docker/tasks/main.yml
+# Installs Docker Engine + Docker Compose v2 on ALL VMs
+#
+# We follow the official Docker installation method for Ubuntu:
+# https://docs.docker.com/engine/install/ubuntu/
+#
+# This installs:
+#   - docker-ce           (Docker Engine)
+#   - docker-ce-cli       (Docker command line)
+#   - containerd.io       (container runtime)
+#   - docker-compose-plugin (modern "docker compose" command)
+# ============================================================
+
+# Check if Docker is already installed
+# Idempotency pattern - don't reinstall if already present
+- name: Check if Docker is installed
+  command: docker --version
+  register: docker_check
+  ignore_errors: true
+  changed_when: false
+
+# Create the directory where APT keyrings are stored
+# Modern Ubuntu (22.04+) uses /etc/apt/keyrings instead of apt-key (deprecated)
+- name: Create APT keyrings directory
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+  when: docker_check.rc != 0
+
+# Download Docker's official GPG signing key
+# APT uses this key to verify that packages really come from Docker Inc
+- name: Download Docker GPG key
+  get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    mode: "0644"
+  when: docker_check.rc != 0
+
+# Add Docker's official APT repository to our sources list
+# ansible_architecture = x86_64 on AWS t3.* instances
+# ansible_distribution_release = noble on Ubuntu 24.04
+- name: Add Docker APT repository
+  apt_repository:
+    repo: >-
+      deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else ansible_architecture }}
+      signed-by=/etc/apt/keyrings/docker.asc]
+      https://download.docker.com/linux/ubuntu
+      {{ ansible_distribution_release }} stable
+    state: present
+    filename: docker
+    update_cache: yes
+  when: docker_check.rc != 0
+
+# Install Docker packages
+# docker-compose-plugin gives us "docker compose" (v2) - the modern way
+# We don't install docker-compose (v1, standalone Python) - it's deprecated
+- name: Install Docker packages
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-compose-plugin
+    state: present
+    update_cache: yes
+  when: docker_check.rc != 0
+
+# Make sure Docker daemon is running and enabled on boot
+# enabled: yes = start Docker automatically when the VM reboots
+- name: Enable and start Docker
+  systemd:
+    name: docker
+    enabled: yes
+    state: started
+
+# Add ubuntu user to the docker group
+# This allows "docker ps" without sudo - important for Ansible tasks
+# Note: the user must log out and back in for this to take effect
+# BUT - Ansible opens a new SSH session for each playbook, so new sessions see it
+- name: Add ubuntu user to docker group
+  user:
+    name: "{{ docker_user }}"
+    groups: docker
+    append: yes   # append to existing groups, don't replace them
+
+# Wait for Docker daemon to be fully ready
+# Sometimes systemd says "started" but socket is not ready yet
+# This prevents flaky "connection refused" errors in the next role
+- name: Wait for Docker daemon socket
+  wait_for:
+    path: /var/run/docker.sock
+    timeout: 30
+
+# Verify Docker works by running a simple command
+# This task always runs (no "when") - it's our health check
+- name: Verify Docker is working
+  command: docker ps
+  changed_when: false   # reading status is not a change
+  

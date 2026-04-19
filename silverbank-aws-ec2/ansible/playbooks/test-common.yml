@@ -1,0 +1,6 @@
+---
+- name: Test common role on all VMs
+  hosts: all
+  become: true
+  roles:
+    - common

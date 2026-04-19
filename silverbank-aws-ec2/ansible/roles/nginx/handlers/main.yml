@@ -1,0 +1,15 @@
+---
+# ============================================================
+# nginx/handlers/main.yml
+# Handlers are special tasks that only run when "notified"
+#
+# Why use handlers?
+# - A task runs "notify: reload nginx" only if it changed something
+# - Handlers run ONCE at the end of the play, even if notified 10 times
+# - This means nginx reloads only when a config actually changed
+# ============================================================
+
+- name: reload nginx
+  systemd:
+    name: nginx
+    state: reloaded

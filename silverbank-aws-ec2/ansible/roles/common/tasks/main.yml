@@ -1,0 +1,76 @@
+---
+# ============================================================
+# common/tasks/main.yml
+# Runs on ALL VMs - basic setup every server needs
+# 
+# This role does NOT install Docker or node-exporter.
+# That happens in separate roles (docker, node-exporter)
+# because node-exporter depends on Docker being installed first.
+# ============================================================
+
+# Update the package list so we can install the latest versions
+# cache_valid_time: 3600 means "only update if cache is older than 1 hour"
+# This prevents unnecessary apt-get update calls on repeated playbook runs
+- name: Update apt cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+# Install basic tools every server needs
+# We use these for debugging, monitoring, and scripts
+- name: Install common packages
+  apt:
+    name:
+      - curl          # making HTTP requests (health checks, downloads)
+      - wget          # downloading files
+      - git           # cloning repos if needed
+      - htop          # interactive CPU/RAM monitor
+      - net-tools     # netstat, ifconfig - useful for debugging
+      - unzip         # needed to unzip AWS CLI installer
+      - ca-certificates  # SSL certificates for HTTPS connections
+      - gnupg         # needed to verify Docker APT signing key
+      - lsb-release   # shows Ubuntu version - used by Docker install script
+    state: present
+
+# Set timezone to UTC on all servers
+# Best practice: always use UTC on servers, convert in the UI
+# Avoids confusion when logs come from different time zones
+- name: Set timezone to UTC
+  timezone:
+    name: UTC
+
+# Install AWS CLI v2
+# We need this for S3 backups (PostgreSQL) and other AWS operations
+# The check "aws --version" prevents reinstalling if already present
+- name: Check if AWS CLI is installed
+  command: /usr/local/bin/aws --version
+  register: aws_cli_check
+  ignore_errors: true
+  changed_when: false
+
+- name: Download AWS CLI installer
+  get_url:
+    url: "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
+    dest: /tmp/awscliv2.zip
+    mode: "0644"
+  when: aws_cli_check.rc != 0
+
+- name: Unzip AWS CLI installer
+  unarchive:
+    src: /tmp/awscliv2.zip
+    dest: /tmp
+    remote_src: yes
+  when: aws_cli_check.rc != 0
+
+- name: Install AWS CLI
+  command: /tmp/aws/install
+  when: aws_cli_check.rc != 0
+
+- name: Clean up AWS CLI installer files
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/awscliv2.zip
+    - /tmp/aws
+  when: aws_cli_check.rc != 0

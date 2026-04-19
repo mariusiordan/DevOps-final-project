@@ -1,0 +1,19 @@
+# ============================================================
+# upstream.conf.j2
+# Blue/Green upstream configuration
+#
+# By default, traffic goes to BLUE
+# To switch to GREEN, run: sudo /opt/switch-backend.sh green
+# ============================================================
+
+# Frontend upstream (Next.js on port 3000)
+upstream app_frontend {
+    server {{ blue_ip }}:3000;       # BLUE frontend - active
+    # server {{ green_ip }}:3000;    # GREEN frontend - inactive
+}
+
+# Backend API upstream (Express on port 4000)
+upstream app_backend_api {
+    server {{ blue_ip }}:4000;       # BLUE backend - active
+    # server {{ green_ip }}:4000;    # GREEN backend - inactive
+}

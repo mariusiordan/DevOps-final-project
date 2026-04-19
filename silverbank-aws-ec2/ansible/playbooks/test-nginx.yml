@@ -1,0 +1,6 @@
+---
+- name: Test nginx role on edge only
+  hosts: edge
+  become: true
+  roles:
+    - nginx

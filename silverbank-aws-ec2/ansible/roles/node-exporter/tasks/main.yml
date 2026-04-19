@@ -1,0 +1,71 @@
+---
+# ============================================================
+# node-exporter/tasks/main.yml
+# Runs on ALL VMs - exposes system metrics for Prometheus
+#
+# node-exporter is a small Go binary from the Prometheus project
+# It exposes CPU, RAM, disk, network metrics on port 9100
+# Prometheus (on monitoring VM) scrapes these metrics every 15s
+#
+# We run it as a Docker container (simpler than installing the binary)
+# --network host means it uses the VM's network directly - needed to see real interface metrics
+# --pid host means it sees all processes on the host - needed for process metrics
+# ============================================================
+
+# Check if node-exporter container already exists
+# We check by name with docker ps -a (includes stopped containers)
+- name: Check if node-exporter container exists
+  command: docker ps -a --filter name=node-exporter --format "{{ '{{' }}.Names{{ '}}' }}"
+  register: node_exporter_check
+  changed_when: false
+
+# Pull the latest node-exporter image
+# Only pulls if the container doesn't exist yet
+# "prom" is the official Prometheus Docker Hub organization
+- name: Pull node-exporter Docker image
+  community.docker.docker_image:
+    name: prom/node-exporter:latest
+    source: pull
+  when: "'node-exporter' not in node_exporter_check.stdout"
+
+# Run the node-exporter container
+# This is the long version - each flag explained below
+- name: Run node-exporter container
+  community.docker.docker_container:
+    name: node-exporter
+    image: prom/node-exporter:latest
+    state: started
+    restart_policy: unless-stopped   # restart on failure or reboot, but not if we manually stop
+
+    # --network host: container shares the host's network namespace
+    # Without this, node-exporter would only see container-level network metrics (useless)
+    network_mode: host
+
+    # --pid host: container can see all processes on the host
+    # Needed for correct system-wide metrics
+    pid_mode: host
+
+    # Mount host filesystems read-only so node-exporter can read system stats
+    # These paths are the standard Linux locations for system information
+    volumes:
+      - /proc:/host/proc:ro     # process information
+      - /sys:/host/sys:ro       # hardware and kernel information
+      - /:/rootfs:ro            # root filesystem (for disk usage)
+
+    # Tell node-exporter where to find the host filesystems inside the container
+    # These match the volume mounts above
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+  when: "'node-exporter' not in node_exporter_check.stdout"
+
+# Verify node-exporter is responding on port 9100
+# This is our health check - if metrics endpoint doesn't respond, something is wrong
+- name: Verify node-exporter is responding
+  uri:
+    url: http://localhost:9100/metrics
+    status_code: 200
+  retries: 5
+  delay: 3
+  

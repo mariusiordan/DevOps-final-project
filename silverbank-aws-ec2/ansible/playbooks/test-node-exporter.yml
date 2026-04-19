@@ -1,0 +1,6 @@
+---
+- name: Test node-exporter role on all VMs
+  hosts: all
+  become: true
+  roles:
+    - node-exporter

@@ -1,0 +1,80 @@
+#!/bin/bash
+# ============================================================
+# switch-backend.sh
+# Managed by Ansible - do not edit by hand
+#
+# Blue/Green deployment switch script
+# Switches BOTH frontend (3000) and backend API (4000) together
+#
+# Usage:
+#   sudo /opt/switch-backend.sh blue    # send traffic to BLUE
+#   sudo /opt/switch-backend.sh green   # send traffic to GREEN
+#   sudo /opt/switch-backend.sh         # auto-switch to the other one
+# ============================================================
+
+NGINX_CONF="/etc/nginx/conf.d/upstream.conf"
+BLUE_IP="{{ blue_ip }}"
+GREEN_IP="{{ green_ip }}"
+TARGET=${1:-""}
+
+# If no argument - auto-detect current and switch to the other
+if [ -z "$TARGET" ]; then
+    CURRENT=$(cat /opt/current-env 2>/dev/null || echo "green")
+    if [ "$CURRENT" = "blue" ]; then
+        TARGET="green"
+    else
+        TARGET="blue"
+    fi
+fi
+
+# Write the new upstream config based on target
+if [ "$TARGET" = "blue" ]; then
+    cat > $NGINX_CONF << CONF
+# Managed by switch-backend.sh - BLUE is active
+upstream app_frontend {
+    server ${BLUE_IP}:3000;      # BLUE frontend - ACTIVE
+    # server ${GREEN_IP}:3000;   # GREEN frontend - INACTIVE
+}
+
+upstream app_backend_api {
+    server ${BLUE_IP}:4000;      # BLUE backend - ACTIVE
+    # server ${GREEN_IP}:4000;   # GREEN backend - INACTIVE
+}
+CONF
+    echo "blue" | sudo tee /opt/current-env > /dev/null
+    echo "Switched to BLUE (${BLUE_IP})"
+
+elif [ "$TARGET" = "green" ]; then
+    cat > $NGINX_CONF << CONF
+# Managed by switch-backend.sh - GREEN is active
+upstream app_frontend {
+    # server ${BLUE_IP}:3000;    # BLUE frontend - INACTIVE
+    server ${GREEN_IP}:3000;     # GREEN frontend - ACTIVE
+}
+
+upstream app_backend_api {
+    # server ${BLUE_IP}:4000;    # BLUE backend - INACTIVE
+    server ${GREEN_IP}:4000;     # GREEN backend - ACTIVE
+}
+CONF
+    echo "green" | sudo tee /opt/current-env > /dev/null
+    echo "Switched to GREEN (${GREEN_IP})"
+
+else
+    echo "Usage: $0 [blue|green]"
+    exit 1
+fi
+
+# Test nginx config BEFORE reloading
+# If there's a syntax error, nginx won't reload and we'll see why
+nginx -t
+
+if [ $? -eq 0 ]; then
+    systemctl reload nginx
+    echo "Nginx reloaded successfully"
+    # Log every switch for audit purposes
+    echo "[$TARGET] $(date)" >> /var/log/nginx/switches.log
+else
+    echo "Nginx config invalid - NOT reloading!"
+    exit 1
+fi

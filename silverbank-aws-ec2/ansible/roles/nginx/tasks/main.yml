@@ -1,0 +1,85 @@
+---
+# ============================================================
+# nginx/tasks/main.yml
+# Runs on edge-nginx only
+#
+# Installs nginx via apt (not Docker - simpler for a reverse proxy)
+# Configures reverse proxy to BLUE or GREEN app servers
+# Deploys blue/green switch script for manual/scripted traffic switching
+# ============================================================
+
+# Install nginx from apt
+# We don't use Docker here because nginx runs on port 80/443
+# - running as native systemd service is simpler and standard
+- name: Install Nginx
+  apt:
+    name: nginx
+    state: present
+    update_cache: yes
+
+# Make sure nginx starts on VM reboot
+# AWS reboots instances for maintenance - nginx must come back automatically
+- name: Enable and start Nginx
+  systemd:
+    name: nginx
+    enabled: yes
+    state: started
+
+# Deploy upstream config - defines WHERE traffic goes (BLUE or GREEN)
+# This is the file the switch-backend.sh script modifies
+- name: Deploy upstream config
+  template:
+    src: upstream.conf.j2
+    dest: /etc/nginx/conf.d/upstream.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx   # reload nginx if this file changes
+
+# Deploy main site config - routing rules, proxy headers, timeouts
+# /api/* goes to backend (port 4000)
+# everything else goes to frontend (port 3000)
+- name: Deploy site config
+  template:
+    src: app.conf.j2
+    dest: /etc/nginx/sites-available/app.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+
+# Enable the site by creating a symlink in sites-enabled/
+# This is how nginx works on Debian/Ubuntu - configs live in sites-available,
+# and you activate them by symlinking to sites-enabled
+- name: Enable site
+  file:
+    src: /etc/nginx/sites-available/app.conf
+    dest: /etc/nginx/sites-enabled/app.conf
+    state: link
+  notify: reload nginx
+
+# Remove the default nginx welcome page
+# Otherwise / shows "Welcome to Nginx!" instead of our app
+- name: Remove default nginx site
+  file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: reload nginx
+
+# Deploy the blue/green switch script
+# Usage: sudo /opt/switch-backend.sh blue
+#        sudo /opt/switch-backend.sh green
+- name: Deploy blue/green switch script
+  template:
+    src: switch-backend.sh.j2
+    dest: /opt/switch-backend.sh
+    owner: root
+    group: root
+    mode: "0755"   # executable
+
+# Validate nginx config before anything else tries to use it
+# nginx -t checks syntax without reloading
+# If config is broken, Ansible fails HERE instead of nginx failing silently later
+- name: Validate nginx config
+  command: nginx -t
+  changed_when: false

@@ -1,0 +1,62 @@
+---
+# ============================================================
+# postgres/tasks/main.yml
+# Runs only on db-postgresql
+#
+# PostgreSQL runs in a Docker container
+# Data is stored on the host at /opt/postgres/data
+# This means data survives container restarts and upgrades
+# ============================================================
+
+# Create the directory structure for postgres
+# /opt/postgres       → docker-compose.yml lives here
+# /opt/postgres/data  → actual database files (PGDATA)
+- name: Create postgres directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ docker_user }}"
+    group: "{{ docker_user }}"
+    mode: "0755"
+  loop:
+    - /opt/postgres
+    - /opt/postgres/data
+
+# Deploy the docker-compose.yml for PostgreSQL
+# Template uses variables from group_vars for credentials and IP binding
+- name: Deploy docker-compose for PostgreSQL
+  template:
+    src: docker-compose.yml.j2
+    dest: /opt/postgres/docker-compose.yml
+    owner: "{{ docker_user }}"
+    group: "{{ docker_user }}"
+    mode: "0644"
+
+# Start the PostgreSQL container using docker compose
+# "chdir" runs the command from the /opt/postgres folder (so docker compose finds the yml)
+# "pull always" makes sure we have the latest image version
+- name: Start PostgreSQL container
+  become_user: "{{ docker_user }}"
+  command:
+    cmd: docker compose up -d --pull always
+    chdir: /opt/postgres
+
+# Wait for PostgreSQL to be ready before moving on
+# Container takes a few seconds to initialize on first run (create DB, users, etc)
+# Without this wait, the next role (app) could try to connect before DB is ready
+- name: Wait for PostgreSQL to accept connections
+  wait_for:
+    host: "{{ db_ip }}"
+    port: 5432
+    delay: 5      # wait 5 seconds before first check
+    timeout: 60   # give up after 60 seconds
+
+# Verify PostgreSQL is actually responsive
+# pg_isready returns 0 if the server is accepting connections
+- name: Verify PostgreSQL is ready
+  command: docker exec postgres pg_isready -U {{ db_user }} -d {{ db_name }}
+  register: pg_ready
+  retries: 5
+  delay: 3
+  until: pg_ready.rc == 0
+  changed_when: false

@@ -1,0 +1,6 @@
+---
+- name: Test docker role on all VMs
+  hosts: all
+  become: true
+  roles:
+    - docker
