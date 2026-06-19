@@ -255,21 +255,21 @@ resource "aws_instance" "blue" {
   tags = { Name = "prod-vm1-BLUE" }
 }
 
-# Prod GREEN - private subnet - temporary stoped to save costs, can be re-enabled for blue-green testing
-# resource "aws_instance" "green" {
-#   ami                    = data.aws_ami.ubuntu.id
-#   instance_type          = var.instance_type_app
-#   key_name               = aws_key_pair.silverbank.key_name
-#   subnet_id              = aws_subnet.private.id
-#   vpc_security_group_ids = [aws_security_group.app.id]
+# Prod GREEN - private subnet
+resource "aws_instance" "green" {
+  ami                    = data.aws_ami.ubuntu.id
+  instance_type          = var.instance_type_app
+  key_name               = aws_key_pair.silverbank.key_name
+  subnet_id              = aws_subnet.private.id
+  vpc_security_group_ids = [aws_security_group.app.id]
 
-#   root_block_device {
-#     volume_size = 20
-#     volume_type = "gp3"
-#   }
+  root_block_device {
+    volume_size = 20
+    volume_type = "gp3"
+  }
 
-#   tags = { Name = "prod-vm2-GREEN" }
-# }
+  tags = { Name = "prod-vm2-GREEN" }
+}
 
 # Database PostgreSQL - private subnet
 resource "aws_instance" "db" {
@@ -285,6 +285,74 @@ resource "aws_instance" "db" {
   }
 
   tags = { Name = "db-postgresql" }
+}
+
+# Monitoring + Staging - private subnet
+resource "aws_instance" "monitoring" {
+  ami                    = data.aws_ami.ubuntu.id
+  instance_type          = var.instance_type_monitoring
+  key_name               = aws_key_pair.silverbank.key_name
+  subnet_id              = aws_subnet.private.id
+  vpc_security_group_ids = [aws_security_group.monitoring.id]
+
+  root_block_device {
+    volume_size = 20
+    volume_type = "gp3"
+  }
+
+  tags = { Name = "monitoring-staging" }
+}
+
+# Monitoring - Grafana from home, Prometheus scrape from VPC, SSH via edge
+resource "aws_security_group" "monitoring" {
+  name        = "silverbank-monitoring"
+  description = "Monitoring - Grafana from home, scrape from VPC"
+  vpc_id      = aws_vpc.main.id
+
+  # Grafana dashboard - only reachable from your home IP
+  ingress {
+    description = "Grafana from home"
+    from_port   = 3001
+    to_port     = 3001
+    protocol    = "tcp"
+    cidr_blocks = [var.your_home_ip]
+  }
+
+  # Prometheus internal UI - from inside the VPC only
+  ingress {
+    description = "Prometheus from VPC"
+    from_port   = 9090
+    to_port     = 9090
+    protocol    = "tcp"
+    cidr_blocks = ["10.0.0.0/16"]
+  }
+
+  # node-exporter scrape - from inside the VPC only
+  ingress {
+    description = "node-exporter scrape from VPC"
+    from_port   = 9100
+    to_port     = 9100
+    protocol    = "tcp"
+    cidr_blocks = ["10.0.0.0/16"]
+  }
+
+  # SSH from edge bastion only
+  ingress {
+    description     = "SSH from edge (bastion)"
+    from_port       = 22
+    to_port         = 22
+    protocol        = "tcp"
+    security_groups = [aws_security_group.edge.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = { Name = "silverbank-monitoring-sg" }
 }
 
 # Elastic IP for NAT Gateway

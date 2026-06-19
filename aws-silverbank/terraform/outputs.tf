@@ -4,7 +4,7 @@
 # ============================================================
 
 output "edge_elastic_ip" {
-  description = "Static Elastic IP for edge nginx - use this in GitHub Actions to check if AWS DR is active"
+  description = "Static Elastic IP for edge nginx"
   value       = aws_eip.edge.public_ip
 }
 
@@ -18,9 +18,19 @@ output "blue_private_ip" {
   value       = aws_instance.blue.private_ip
 }
 
+output "green_private_ip" {
+  description = "Private IP of GREEN app server"
+  value       = aws_instance.green.private_ip
+}
+
 output "db_private_ip" {
   description = "Private IP of PostgreSQL server"
   value       = aws_instance.db.private_ip
+}
+
+output "monitoring_private_ip" {
+  description = "Private IP of monitoring server"
+  value       = aws_instance.monitoring.private_ip
 }
 
 output "ami_id" {
@@ -42,9 +52,13 @@ resource "local_file" "ansible_inventory" {
 
     [prod]
     prod-vm1-BLUE ansible_host=${aws_instance.blue.private_ip}
+    prod-vm2-GREEN ansible_host=${aws_instance.green.private_ip}
 
     [db]
     db-postgresql ansible_host=${aws_instance.db.private_ip}
+
+    [monitoring]
+    monitoring-staging ansible_host=${aws_instance.monitoring.private_ip}
 
     [prod:vars]
     ansible_user=ubuntu
@@ -52,6 +66,11 @@ resource "local_file" "ansible_inventory" {
     ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ProxyJump=ubuntu@${aws_eip.edge.public_ip}'
 
     [db:vars]
+    ansible_user=ubuntu
+    ansible_ssh_private_key_file=~/.ssh/id_ed25519
+    ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ProxyJump=ubuntu@${aws_eip.edge.public_ip}'
+
+    [monitoring:vars]
     ansible_user=ubuntu
     ansible_ssh_private_key_file=~/.ssh/id_ed25519
     ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ProxyJump=ubuntu@${aws_eip.edge.public_ip}'
@@ -70,9 +89,11 @@ resource "local_file" "group_vars_all" {
     app_port_backend:  4000
 
     # AWS IPs (auto-updated on every terraform apply)
-    blue_app_ip: "${aws_instance.blue.private_ip}"
-    db_app_ip:   "${aws_instance.db.private_ip}"
-    edge_ip:     "${aws_eip.edge.public_ip}"
+    blue_app_ip:   "${aws_instance.blue.private_ip}"
+    green_app_ip:  "${aws_instance.green.private_ip}"
+    db_app_ip:     "${aws_instance.db.private_ip}"
+    monitoring_ip: "${aws_instance.monitoring.private_ip}"
+    edge_ip:       "${aws_eip.edge.public_ip}"
 
     # Docker user on AWS VMs
     docker_user: ubuntu

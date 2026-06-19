@@ -1,18 +1,10 @@
 ---
-- name: Allow frontend port from nginx only
-  ufw:
-    rule: allow
-    port: "3000"
-    proto: tcp
-    src: "{{ blue_app_ip }}"
+# app/tasks/main.yml
+# Runs on BLUE and GREEN VMs
+# Deploys the SilverBank app (frontend + backend) as Docker containers
+# No UFW - AWS security groups handle the firewall
 
-- name: Allow backend port from nginx only
-  ufw:
-    rule: allow
-    port: "4000"
-    proto: tcp
-    src: "{{ blue_app_ip }}"
-
+# Create the folder where docker-compose and .env will live
 - name: Create app directory
   file:
     path: "{{ app_dir }}"
@@ -20,6 +12,7 @@
     owner: "{{ docker_user }}"
     group: "{{ docker_user }}"
 
+# Deploy docker-compose.yml from template (with image tags and ports)
 - name: Deploy docker-compose file
   template:
     src: docker-compose.yml.j2
@@ -27,6 +20,8 @@
     owner: "{{ docker_user }}"
     group: "{{ docker_user }}"
 
+# Deploy .env with DB connection and JWT secret
+# mode 0600 = only owner can read it (protects secrets)
 - name: Deploy .env file
   template:
     src: .env.j2
@@ -35,6 +30,7 @@
     group: "{{ docker_user }}"
     mode: "0600"
 
+# Log in to GHCR so we can pull private images
 - name: Login to GitHub Container Registry
   become_user: "{{ docker_user }}"
   command: >
@@ -44,6 +40,7 @@
   args:
     stdin: "{{ vault_ghcr_token }}"
 
+# Stop any running containers before redeploying
 - name: Stop existing containers
   become_user: "{{ docker_user }}"
   command:
@@ -51,6 +48,7 @@
     chdir: "{{ app_dir }}"
   ignore_errors: true
 
+# Pull the latest images and start the containers
 - name: Start app containers
   become_user: "{{ docker_user }}"
   command:

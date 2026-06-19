@@ -32,3 +32,9 @@ variable "instance_type_db" {
   type        = string
   default     = "t3.small" # 2 vCPU, 2GB RAM - enough for PostgreSQL
 }
+
+variable "instance_type_monitoring" {
+  description = "EC2 instance type for monitoring-staging"
+  type        = string
+  default     = "t3.small"
+}
