@@ -16,7 +16,7 @@ Five EC2 instances mirroring the Proxmox VMs:
 | prod-vm1-BLUE | App server (frontend + backend) | Private | Blue/Green |
 | prod-vm2-GREEN | App server (frontend + backend) | Private | Blue/Green |
 | db-postgresql | PostgreSQL in Docker | Private | |
-| monitoring-staging | Prometheus + Grafana | Private | |
+| monitoring-staging | Prometheus + Grafana + Loki | Private | Grafana on port 3001 |
 
 Networking: VPC `10.0.0.0/16`, public subnet `10.0.1.0/24`, private subnet `10.0.2.0/24`, NAT Gateway for private outbound, Internet Gateway for public.
 
@@ -42,12 +42,12 @@ curl https://checkip.amazonaws.com           # copy this IP
 terraform apply        # type yes
 ```
 
-**Step 3 — Configure VMs + deploy app (~5 min):**
+**Step 3 — Configure VMs + deploy app + monitoring (~5 min):**
 
 ```bash
 cd ../ansible
 ansible all -m ping                  # confirm SSH works to all 5 VMs
-ansible-playbook playbooks/site.yml  # installs Docker, nginx, app, postgres
+ansible-playbook playbooks/site.yml  # Docker, nginx, app, postgres, monitoring
 ```
 
 **Step 4 — Open the app:**
@@ -55,6 +55,13 @@ ansible-playbook playbooks/site.yml  # installs Docker, nginx, app, postgres
 ```bash
 cd ../terraform && terraform output edge_elastic_ip
 # open http://<that-ip>/ in a browser
+```
+
+**If Prometheus targets show "down" after a rebuild** — the config has fresh IPs but Prometheus
+may still hold the old ones. Restart it once:
+
+```bash
+ansible monitoring -m shell -a "cd /opt/monitoring && docker compose restart prometheus"
 ```
 
 **End of session — tear down to save cost:**
@@ -99,7 +106,8 @@ grep your_home_ip terraform.tfvars           # Compare with what's set
 ```bash
 ansible all -m ping                          # Test SSH to all 5 VMs
 ansible-playbook playbooks/site.yml          # Configure everything
-ansible-playbook playbooks/site.yml --limit edge    # One group only
+ansible-playbook playbooks/site.yml --limit edge        # One group only
+ansible-playbook playbooks/site.yml --limit monitoring  # Just monitoring
 ansible <group> -a "<command>"               # Ad-hoc command on a group
 ```
 
@@ -140,6 +148,42 @@ ansible prod-vm1-BLUE -a "curl -s http://localhost:4000/api/health"   # Backend 
 ansible db -a "docker exec postgres psql -U silverbank_admin -d appdb -c '\l'"   # List databases
 ```
 
+### Monitoring checks (run from `ansible/`)
+
+```bash
+# Confirm node-exporter runs on every VM
+ansible all -m shell -a "docker ps | grep node-exporter || echo NONE"
+
+# Count Prometheus targets up vs down (expect 6 up: 5 node-exporters + Prometheus)
+ansible monitoring -m shell -a "curl -s http://localhost:9090/api/v1/targets | grep -o '\"health\":\"[a-z]*\"' | sort | uniq -c"
+
+# The two :4000 app-backend targets are expected to be DOWN
+# (they return JSON, not Prometheus metrics — harmless)
+
+# Restart Prometheus if it's holding stale IPs after a rebuild
+ansible monitoring -m shell -a "cd /opt/monitoring && docker compose restart prometheus"
+```
+
+### Access Grafana / Prometheus (private subnet — needs SSH tunnel)
+
+Monitoring lives in the private subnet, so reach it through an SSH tunnel via the edge bastion.
+Open the tunnel in its own terminal and **leave it running** (it looks frozen — that's correct):
+
+```bash
+# Grafana (login admin / changeme)
+ssh -N -L 3001:<MONITORING_PRIVATE_IP>:3001 ubuntu@<EDGE_ELASTIC_IP> -i ~/.ssh/id_ed25519
+# then open http://127.0.0.1:3001  (use 127.0.0.1, not localhost)
+
+# Prometheus
+ssh -N -L 9090:<MONITORING_PRIVATE_IP>:9090 ubuntu@<EDGE_ELASTIC_IP> -i ~/.ssh/id_ed25519
+# then open http://127.0.0.1:9090/targets
+```
+
+> Tunnel troubleshooting (known unsolved issue, see TODO): if the browser won't load but
+> `ansible monitoring -m shell -a "curl ... http://localhost:3001/login"` returns `200`,
+> Grafana is healthy and the problem is the local tunnel/browser. Try `127.0.0.1` instead of
+> `localhost`, a fresh terminal, or `lsof -ti:3001 | xargs kill -9` to clear a stuck port.
+
 ---
 
 ## App local development (run from `SilverBank-AWS/`)
@@ -171,6 +215,11 @@ Local PostgreSQL via Homebrew: `brew services start postgresql@16`
 - **Idempotency** — running a playbook twice should show `changed=0` the second time.
 - **`terraform destroy` wipes the DB volume** — data does not survive teardown until S3 backups are wired in.
 - **Backend `/api/health` reports `database: connected`** — quick way to confirm the full app→DB chain works.
+- **Security groups fail silently** — a blocked port shows as "context deadline exceeded" (timeout), not a clear error. When Prometheus targets are down, suspect a missing SG rule first.
+- **Grafana runs on 3001 on AWS** — port 3000 is taken by the app frontend. Container is still 3000 internally, mapped to 3001 on the host (`"3001:3000"`).
+- **Prometheus must scrape private IPs**, not the edge public IP. Added `edge_private_ip` to group_vars for this.
+- **Prometheus caches targets** — after changing scrape config, a `docker compose restart prometheus` is sometimes needed to pick up new IPs.
+- **node-exporter needs port 9100 open from the monitoring SG** on every other SG (app, db, edge).
 
 ---
 
@@ -197,13 +246,29 @@ Local PostgreSQL via Homebrew: `brew services start postgresql@16`
 - Committed both repos (app: health route; infra: 5-VM setup + role fixes)
 - Added "Daily restart" section to this README
 
+### Session 3
+- Enabled the monitoring play in `site.yml` (was commented out)
+- Added node-exporter to the `common` role so it runs on all 5 VMs
+- Removed UFW from the monitoring role
+- Fixed Grafana to run on port 3001 (3000 used by app frontend)
+- Rewrote `prometheus.yml.j2` to use AWS private IPs from group_vars
+- Added `edge_private_ip` output + used it for the edge scrape target
+- Added port 9100 ingress rules to app, db, and edge security groups (Prometheus scraping)
+- Debugged scrape failures one VM at a time — traced to missing SG rules ("context deadline exceeded" = blocked)
+- **All 5 node-exporters scraped successfully; Grafana healthy (HTTP 200)** ✅
+- Committed monitoring work
+- **Open issue:** Grafana SSH tunnel won't load in the browser even though Grafana returns 200 — to revisit
+- Destroyed infra at end of session
+
 ---
 
 ## TODO / Next steps
 
 - [x] Run `site.yml` and deploy app to BLUE + GREEN
 - [x] Verify app works end-to-end (open edge IP in browser, log in)
-- [ ] Enable monitoring role in `site.yml` (currently commented out) — Prometheus + Grafana
+- [x] Enable monitoring role in `site.yml` — Prometheus + Grafana + Loki
+- [ ] **Fix Grafana SSH tunnel access from the browser** (Grafana returns 200 on the VM, but the local tunnel won't render — try fresh terminal, 127.0.0.1, clear stuck port)
+- [ ] Add Prometheus as a Grafana data source + import a node-exporter dashboard
 - [ ] Test Blue/Green switch script manually (`sudo /opt/switch-backend.sh green`)
 - [ ] Build GitHub Actions pipeline: dev → PR tests → staging → manual test → prod (manager approval) → S3 backup → deploy idle VM → switch traffic → monitor 10 min → rollback on failure
 - [ ] Set up S3 DB backups from postgres VM (also enables data to survive destroy)
