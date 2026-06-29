@@ -118,6 +118,14 @@ resource "aws_security_group" "edge" {
     cidr_blocks = [var.your_home_ip]
   }
 
+  # node-exporter scrape from monitoring VM
+  ingress {
+    description     = "node-exporter from monitoring"
+    from_port       = 9100
+    to_port         = 9100
+    protocol        = "tcp"
+    cidr_blocks = ["10.0.2.0/24"]
+  }
   # Allow all outbound traffic
   egress {
     from_port   = 0
@@ -174,6 +182,15 @@ resource "aws_security_group" "app" {
     security_groups = [aws_security_group.edge.id]
   }
 
+
+  # node-exporter scrape from monitoring VM
+  ingress {
+    description     = "node-exporter from monitoring"
+    from_port       = 9100
+    to_port         = 9100
+    protocol        = "tcp"
+    security_groups = [aws_security_group.monitoring.id]
+  }
   # Allow all outbound (needed to pull Docker images from ghcr.io)
   egress {
     from_port   = 0
@@ -207,6 +224,15 @@ resource "aws_security_group" "db" {
     to_port         = 22
     protocol        = "tcp"
     security_groups = [aws_security_group.edge.id]
+  }
+
+  # node-exporter scrape from monitoring VM
+  ingress {
+    description     = "node-exporter from monitoring"
+    from_port       = 9100
+    to_port         = 9100
+    protocol        = "tcp"
+    security_groups = [aws_security_group.monitoring.id]
   }
 
   egress {
@@ -328,6 +354,7 @@ resource "aws_security_group" "monitoring" {
   }
 
   # node-exporter scrape - from inside the VPC only
+  # node-exporter scrape - from inside the VPC only
   ingress {
     description = "node-exporter scrape from VPC"
     from_port   = 9100
@@ -344,7 +371,6 @@ resource "aws_security_group" "monitoring" {
     protocol        = "tcp"
     security_groups = [aws_security_group.edge.id]
   }
-
   egress {
     from_port   = 0
     to_port     = 0

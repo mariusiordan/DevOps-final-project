@@ -1,17 +1,8 @@
 ---
-- name: Allow Grafana from LAN only
-  ufw:
-    rule: allow
-    port: "3000"
-    proto: tcp
-    src: "192.168.7.0/24"
-
-- name: Allow Prometheus from LAN only
-  ufw:
-    rule: allow
-    port: "9090"
-    proto: tcp
-    src: "192.168.7.0/24"
+# monitoring/tasks/main.yml
+# Runs on monitoring-staging VM
+# Deploys Prometheus + Grafana + Loki via Docker Compose
+# No UFW - AWS security groups handle the firewall
 
 - name: Create monitoring directories
   file:

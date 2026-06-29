@@ -94,6 +94,7 @@ resource "local_file" "group_vars_all" {
     db_app_ip:     "${aws_instance.db.private_ip}"
     monitoring_ip: "${aws_instance.monitoring.private_ip}"
     edge_ip:       "${aws_eip.edge.public_ip}"
+    edge_private_ip: "${aws_instance.edge.private_ip}"
 
     # Docker user on AWS VMs
     docker_user: ubuntu

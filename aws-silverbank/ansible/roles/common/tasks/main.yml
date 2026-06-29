@@ -75,3 +75,24 @@
   wait_for_connection:
     delay: 5       # wait 5 seconds before trying
     timeout: 30    # try for maximum 30 seconds
+
+# ── Node Exporter ────────────────────────────────────────────
+# Runs on ALL VMs - exposes system metrics on port 9100
+# Prometheus (on monitoring VM) scrapes these every 15s
+- name: Run node-exporter container
+  community.docker.docker_container:
+    name: node-exporter
+    image: prom/node-exporter:latest
+    state: started
+    restart_policy: unless-stopped
+    network_mode: host        # use host network so it sees real interfaces
+    pid_mode: host            # see all host processes
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+  become_user: "{{ docker_user }}"
