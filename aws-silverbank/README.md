@@ -15,12 +15,15 @@ Five EC2 instances mirroring the Proxmox VMs:
 | edge-nginx | Reverse proxy + bastion | Public | Has Elastic IP (static) |
 | prod-vm1-BLUE | App server (frontend + backend) | Private | Blue/Green |
 | prod-vm2-GREEN | App server (frontend + backend) | Private | Blue/Green |
-| db-postgresql | PostgreSQL in Docker | Private | |
+| db-postgresql | PostgreSQL in Docker | Private | IAM role for S3 backups |
 | monitoring-staging | Prometheus + Grafana + Loki | Private | Grafana on port 3001 |
 
 Networking: VPC `10.0.0.0/16`, public subnet `10.0.1.0/24`, private subnet `10.0.2.0/24`, NAT Gateway for private outbound, Internet Gateway for public.
 
 Region: `eu-west-2` (London). Terraform state in S3 bucket `silverbank-tfstate-mariusiordan`.
+DB backups live under the `db-backups/` prefix in the same bucket (30-day lifecycle rule).
+
+**DB credentials** (from the vault, injected into the postgres container): user `devop_db`, database `appdb`.
 
 ---
 
@@ -50,31 +53,39 @@ ansible all -m ping                  # confirm SSH works to all 5 VMs
 ansible-playbook playbooks/site.yml  # Docker, nginx, app, postgres, monitoring
 ```
 
-**Step 4 — Open the app:**
+**Step 4 — Restore the database from S3** (brings back last session's data):
+
+```bash
+ansible db -m shell -a "/opt/restore-db.sh" --become
+```
+
+**Step 5 — Open the app:**
 
 ```bash
 cd ../terraform && terraform output edge_elastic_ip
 # open http://<that-ip>/ in a browser
 ```
 
-**If Prometheus targets show "down" after a rebuild** — the config has fresh IPs but Prometheus
-may still hold the old ones. Restart it once:
+**If Prometheus targets show "down" after a rebuild** — restart it once:
 
 ```bash
 ansible monitoring -m shell -a "cd /opt/monitoring && docker compose restart prometheus"
 ```
 
-**End of session — tear down to save cost:**
+**End of session — back up, then tear down:**
 
 ```bash
-cd aws-silverbank/terraform
+cd ../ansible
+ansible db -m shell -a "/opt/backup-db.sh" --become   # save data to S3 FIRST
+cd ../terraform
 terraform destroy     # type yes
 ```
 
 **Notes:**
 - The **Elastic IP is reserved** — the edge URL stays the same across destroy/apply.
 - **Images are already on GHCR** — no rebuild needed unless app code changes.
-- **`terraform destroy` wipes the database** (db volume is destroyed). Next start = empty DB, Prisma recreates the tables. Accounts/data from the previous session are gone. (The future pipeline will back up to S3 before destroy.)
+- **`terraform destroy` wipes the DB volume.** Always run `/opt/backup-db.sh` before destroy,
+  and `/opt/restore-db.sh` after the next apply, to keep your data.
 
 ---
 
@@ -120,6 +131,22 @@ ansible-vault edit group_vars/all/vault.yml          # Edit secrets
 
 Vault password file: `~/.vault-password-aws` (referenced in `ansible.cfg`). **Never commit this file.**
 
+### Database backup / restore (S3, via IAM role on the db VM)
+
+```bash
+# Back up: data-only dump -> gzip -> S3 (timestamped + "latest")
+ansible db -m shell -a "/opt/backup-db.sh" --become
+
+# Restore: download latest -> truncate tables -> load data (idempotent)
+ansible db -m shell -a "/opt/restore-db.sh" --become
+
+# Confirm the IAM role works (no stored credentials needed)
+ansible db -m shell -a "aws sts get-caller-identity" --become
+
+# List backups in S3
+ansible db -m shell -a "aws s3 ls s3://silverbank-tfstate-mariusiordan/db-backups/" --become
+```
+
 ### Docker images (run from app repo `SilverBank-AWS/`)
 
 Build for `linux/amd64` because EC2 is x86_64 (Mac builds ARM by default):
@@ -145,7 +172,7 @@ docker push ghcr.io/mariusiordan/silverbank-frontend:latest
 curl -v http://<EDGE_ELASTIC_IP>/            # Should serve the app (502 if app not deployed yet)
 ansible prod -a "docker ps"                  # Check app containers on blue/green
 ansible prod-vm1-BLUE -a "curl -s http://localhost:4000/api/health"   # Backend health + DB connection
-ansible db -a "docker exec postgres psql -U silverbank_admin -d appdb -c '\l'"   # List databases
+ansible db -m shell -a "docker exec postgres psql -U devop_db -d appdb -c '\dt'"   # List tables
 ```
 
 ### Blue/Green switching (the switch script lives on the edge VM)
@@ -199,10 +226,49 @@ ssh -N -L 9090:<MONITORING_PRIVATE_IP>:9090 ubuntu@<EDGE_ELASTIC_IP> -i ~/.ssh/i
 # then open http://127.0.0.1:9090/targets
 ```
 
-> Tunnel troubleshooting (known unsolved issue, see TODO): if the browser won't load but
-> `ansible monitoring -m shell -a "curl ... http://localhost:3001/login"` returns `200`,
-> Grafana is healthy and the problem is the local tunnel/browser. Try `127.0.0.1` instead of
-> `localhost`, a fresh terminal, or `lsof -ti:3001 | xargs kill -9` to clear a stuck port.
+---
+
+## 🔧 Troubleshooting (things that went wrong and how they were fixed)
+
+**SSH times out to all VMs / "context deadline exceeded"**
+Home IP changed. Update `your_home_ip` in `terraform.tfvars` (with `/32`) and `terraform apply`.
+
+**`aws: command not found` on a VM**
+AWS CLI not installed. It's in the `common` role now (needs the `unzip` package too — the
+`unarchive` module fails without it). Re-run `ansible-playbook playbooks/site.yml`.
+
+**Prometheus targets down after rebuild**
+```bash
+ansible monitoring -m shell -a "cd /opt/monitoring && docker compose restart prometheus"
+```
+If a specific VM stays down, suspect a missing security-group rule for port 9100.
+
+**Grafana tunnel won't load in the browser (Grafana itself is fine)**
+Check Grafana is healthy on the VM first:
+```bash
+ansible monitoring -m shell -a "curl -s -o /dev/null -w '%{http_code}' http://localhost:3001/login" --become
+```
+If that returns `200`, the problem is the local tunnel/browser, not Grafana. Try:
+- use `http://127.0.0.1:3001` (not `localhost`)
+- clear a stuck port: `lsof -ti:3001 | xargs kill -9`
+- open the tunnel with `-N` in a fresh terminal and leave it running
+
+**Backup uploaded a tiny (~20 byte) file**
+Old bug: `pg_dump | gzip` hid pg_dump failures. Fixed — the script now dumps to a file,
+checks it's ≥100 bytes, and aborts on empty. Also reads the DB user from the container
+(`devop_db`), so it can't use the wrong username.
+
+**Restore errors: "relation already exists" / "duplicate key"**
+The backup is **data-only** (Prisma owns the schema) and **excludes `_prisma_migrations`**.
+The restore script **truncates the tables first**, then loads — so it's safe to run repeatedly.
+If you see duplicate-key errors, you're running an old version of the script; redeploy with
+`ansible-playbook playbooks/site.yml --limit db`.
+
+**Can't delete rows: "violates foreign key constraint"**
+The schema chains User → Account → Transaction → CashEntry. To clear everything at once:
+```bash
+ansible db -m shell -a "docker exec postgres psql -U devop_db -d appdb -c 'TRUNCATE \"User\", \"Account\", \"Transaction\", \"CashEntry\" CASCADE;'" --become
+```
 
 ---
 
@@ -233,7 +299,6 @@ Local PostgreSQL via Homebrew: `brew services start postgresql@16`
 - **Build images for `linux/amd64`** — Mac (Apple Silicon) builds ARM64 by default which won't run on EC2.
 - **Home IP changes** lock you out of SSH — check before every apply.
 - **Idempotency** — running a playbook twice should show `changed=0` the second time.
-- **`terraform destroy` wipes the DB volume** — data does not survive teardown until S3 backups are wired in.
 - **Backend `/api/health` reports `database: connected`** — quick way to confirm the full app→DB chain works.
 - **Security groups fail silently** — a blocked port shows as "context deadline exceeded" (timeout), not a clear error. When Prometheus targets are down, suspect a missing SG rule first.
 - **Grafana runs on 3001 on AWS** — port 3000 is taken by the app frontend. Container is still 3000 internally, mapped to 3001 on the host (`"3001:3000"`).
@@ -241,6 +306,9 @@ Local PostgreSQL via Homebrew: `brew services start postgresql@16`
 - **Prometheus caches targets** — after changing scrape config, a `docker compose restart prometheus` is sometimes needed to pick up new IPs.
 - **node-exporter needs port 9100 open from the monitoring SG** on every other SG (app, db, edge).
 - **Blue/Green switch = one script, zero downtime.** `switch-backend.sh` rewrites the upstream, runs `nginx -t` before reloading, and logs every switch to `/var/log/nginx/switches.log`. `/opt/current-env` records the active colour.
+- **IAM role beats stored keys.** The db VM reaches S3 via an attached IAM instance profile — no access keys anywhere. Least privilege: only the `db-backups/` prefix.
+- **A backup that "succeeds" can still be empty.** Always add a sanity check (size, row count). The `pg_dump | gzip` pattern hides pg_dump failures — dump to a file and check it first.
+- **Back up data only when an ORM owns the schema.** Prisma creates the tables via migrations; the backup carries just the rows (`--data-only`, exclude `_prisma_migrations`). Restore truncates then loads.
 
 ---
 
@@ -278,12 +346,11 @@ Local PostgreSQL via Homebrew: `brew services start postgresql@16`
 - Debugged scrape failures one VM at a time — traced to missing SG rules ("context deadline exceeded" = blocked)
 - **All 5 node-exporters scraped successfully; Grafana healthy (HTTP 200)** ✅
 - Committed monitoring work
-- **Open issue:** Grafana SSH tunnel won't load in the browser even though Grafana returns 200 — to revisit
 - Destroyed infra at end of session
 
 ### Session 4
 - Rebuilt infra (`terraform apply` + `site.yml`) — app + monitoring came up clean
-- Monitoring healthy on first try: 6 targets up, 2 expected down (no manual Prometheus restart needed)
+- Monitoring healthy on first try: 6 targets up, 2 expected down
 - Found the nginx role was still the old single-VM DR version (no Blue/Green, no switch script)
 - Upgraded the nginx role for Blue/Green:
   - Rewrote `upstream.conf.j2` with blue + green upstreams (blue active by default)
@@ -291,6 +358,18 @@ Local PostgreSQL via Homebrew: `brew services start postgresql@16`
   - Removed UFW from the nginx role; added a task to deploy the switch script to `/opt`
 - **Tested Blue/Green end-to-end:** switched BLUE → GREEN → BLUE, app healthy on both, zero downtime ✅
 - Committed the nginx Blue/Green work
+
+### Session 5
+- Explained the four nginx files line by line (switch script, upstream, tasks, site config)
+- Built S3 database backups with an IAM role:
+  - `iam.tf`: IAM role + least-privilege policy (db-backups/ only) + instance profile, attached to the db VM
+  - Added AWS CLI install to the `common` role (plus the missing `unzip` package)
+  - `backup-db.sh`: data-only dump, excludes `_prisma_migrations`, size-check safety net, uploads timestamped + latest to S3
+  - `restore-db.sh`: downloads latest, truncates tables, loads data (idempotent)
+- Debugged along the way: silent 20-byte backup, wrong DB user (`devop_db` not `silverbank_admin`), foreign-key chain, Prisma migrations table, duplicate keys
+- **Tested backup → wipe → restore end-to-end: data survives cleanly, repeatable with no errors** ✅
+- Committed the S3 backup work
+- Added a Troubleshooting section to this README
 
 ---
 
@@ -300,9 +379,9 @@ Local PostgreSQL via Homebrew: `brew services start postgresql@16`
 - [x] Verify app works end-to-end (open edge IP in browser, log in)
 - [x] Enable monitoring role in `site.yml` — Prometheus + Grafana + Loki
 - [x] Test Blue/Green switch script manually (`sudo /opt/switch-backend.sh green`)
-- [ ] Set up S3 DB backups from postgres VM (also enables data to survive destroy)
+- [x] Set up S3 DB backups from postgres VM (data survives destroy)
 - [ ] Build GitHub Actions pipeline: dev → PR tests → staging → manual test → prod (manager approval) → S3 backup → deploy idle VM → switch traffic → monitor 10 min → rollback on failure
-- [ ] **Fix Grafana SSH tunnel access from the browser** (Grafana returns 200 on the VM, but the local tunnel won't render — try fresh terminal, 127.0.0.1, clear stuck port)
+- [ ] Fix Grafana SSH tunnel access from the browser (Grafana returns 200 on the VM; local tunnel won't render)
 - [ ] Add Prometheus as a Grafana data source + import a node-exporter dashboard
 - [ ] Clean up deprecated `dynamodb_table` (use `use_lockfile` instead)
 - [ ] Portfolio polish: architecture diagram + top-level project README
