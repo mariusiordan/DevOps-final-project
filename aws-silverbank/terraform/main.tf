@@ -304,6 +304,7 @@ resource "aws_instance" "db" {
   key_name               = aws_key_pair.silverbank.key_name
   subnet_id              = aws_subnet.private.id
   vpc_security_group_ids = [aws_security_group.db.id]
+  iam_instance_profile   = aws_iam_instance_profile.db_backup.name
 
   root_block_device {
     volume_size = 30 # more space for DB data

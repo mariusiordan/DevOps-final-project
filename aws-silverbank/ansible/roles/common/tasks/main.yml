@@ -20,6 +20,7 @@
       - ca-certificates
       - gnupg
       - lsb-release
+      - unzip
     state: present
 
 # Set timezone to UTC
@@ -96,3 +97,38 @@
       - --path.sysfs=/host/sys
       - --path.rootfs=/rootfs
   become_user: "{{ docker_user }}"
+# ── AWS CLI ──────────────────────────────────────────────────
+# Needed on the db VM for S3 backups (uses the attached IAM role)
+# Installed on all VMs for simplicity
+- name: Check if AWS CLI is installed
+  command: /usr/local/bin/aws --version
+  register: awscli_check
+  ignore_errors: true
+  changed_when: false
+
+- name: Download AWS CLI installer
+  get_url:
+    url: "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
+    dest: /tmp/awscliv2.zip
+    mode: "0644"
+  when: awscli_check.rc != 0
+
+- name: Unzip AWS CLI installer
+  unarchive:
+    src: /tmp/awscliv2.zip
+    dest: /tmp
+    remote_src: yes
+  when: awscli_check.rc != 0
+
+- name: Install AWS CLI
+  command: /tmp/aws/install
+  when: awscli_check.rc != 0
+
+- name: Clean up AWS CLI installer
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/awscliv2.zip
+    - /tmp/aws
+  when: awscli_check.rc != 0

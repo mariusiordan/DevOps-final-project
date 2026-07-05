@@ -39,3 +39,23 @@
   command:
     cmd: docker compose up -d
     chdir: /opt/postgres  # run this command from the /opt/postgres folder
+# ── Backup script ────────────────────────────────────────────
+# Deploy the S3 backup script to /opt on the db VM
+# Run it with: sudo /opt/backup-db.sh
+- name: Deploy database backup script
+  copy:
+    src: backup-db.sh
+    dest: /opt/backup-db.sh
+    owner: root
+    group: root
+    mode: "0755"
+
+# Deploy the S3 restore script to /opt on the db VM
+# Run it with: sudo /opt/restore-db.sh
+- name: Deploy database restore script
+  copy:
+    src: restore-db.sh
+    dest: /opt/restore-db.sh
+    owner: root
+    group: root
+    mode: "0755"
