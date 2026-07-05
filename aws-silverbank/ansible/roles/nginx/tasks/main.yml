@@ -1,19 +1,8 @@
 ---
 # nginx/tasks/main.yml
-# Runs on edge-nginx VM (AWS DR environment)
-# Nginx acts as a reverse proxy forwarding traffic to the single prod VM
-
-- name: Allow HTTP through firewall
-  ufw:
-    rule: allow
-    port: "80"
-    proto: tcp
-
-# - name: Allow HTTPS through firewall (planned - SSL not yet configured)
-#   ufw:
-#     rule: allow
-#     port: "443"
-#     proto: tcp
+# Runs on edge-nginx VM
+# Reverse proxy with Blue/Green switching
+# No UFW - AWS Security Groups handle the firewall
 
 - name: Install Nginx
   apt:
@@ -27,19 +16,21 @@
     enabled: yes
     state: started
 
-# Static upstream config — single prod VM, no Blue/Green on DR
+# Upstream config - defines blue/green targets (blue active by default)
 - name: Deploy upstream config
   template:
     src: upstream.conf.j2
     dest: /etc/nginx/conf.d/upstream.conf
   notify: reload nginx
 
+# Site config - routing rules, proxy headers
 - name: Deploy site config
   template:
     src: app.conf.j2
     dest: /etc/nginx/sites-available/app.conf
   notify: reload nginx
 
+# Enable the site via symlink
 - name: Enable site
   file:
     src: /etc/nginx/sites-available/app.conf
@@ -47,8 +38,19 @@
     state: link
   notify: reload nginx
 
+# Remove default nginx welcome page
 - name: Remove default nginx site
   file:
     path: /etc/nginx/sites-enabled/default
     state: absent
   notify: reload nginx
+
+# Deploy the Blue/Green switch script
+# Usage on edge: sudo /opt/switch-backend.sh blue|green
+- name: Deploy switch-backend script
+  template:
+    src: switch-backend.sh.j2
+    dest: /opt/switch-backend.sh
+    owner: root
+    group: root
+    mode: "0755"

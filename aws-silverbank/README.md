@@ -148,6 +148,26 @@ ansible prod-vm1-BLUE -a "curl -s http://localhost:4000/api/health"   # Backend 
 ansible db -a "docker exec postgres psql -U silverbank_admin -d appdb -c '\l'"   # List databases
 ```
 
+### Blue/Green switching (the switch script lives on the edge VM)
+
+Nginx forwards traffic to whichever colour is active. `switch-backend.sh` toggles between
+BLUE and GREEN, tests the nginx config, then reloads with zero downtime.
+
+```bash
+# Check which colour is active
+ansible edge -m shell -a "cat /opt/current-env 2>/dev/null || echo 'not set (defaults to blue)'"
+
+# See the live upstream config
+ansible edge -m shell -a "cat /etc/nginx/conf.d/upstream.conf"
+
+# Switch traffic
+ansible edge -m shell -a "sudo /opt/switch-backend.sh green" --become   # to GREEN
+ansible edge -m shell -a "sudo /opt/switch-backend.sh blue"  --become   # to BLUE
+
+# Confirm the app still responds after switching
+curl -s http://<EDGE_ELASTIC_IP>/api/health
+```
+
 ### Monitoring checks (run from `ansible/`)
 
 ```bash
@@ -220,6 +240,7 @@ Local PostgreSQL via Homebrew: `brew services start postgresql@16`
 - **Prometheus must scrape private IPs**, not the edge public IP. Added `edge_private_ip` to group_vars for this.
 - **Prometheus caches targets** — after changing scrape config, a `docker compose restart prometheus` is sometimes needed to pick up new IPs.
 - **node-exporter needs port 9100 open from the monitoring SG** on every other SG (app, db, edge).
+- **Blue/Green switch = one script, zero downtime.** `switch-backend.sh` rewrites the upstream, runs `nginx -t` before reloading, and logs every switch to `/var/log/nginx/switches.log`. `/opt/current-env` records the active colour.
 
 ---
 
@@ -260,6 +281,17 @@ Local PostgreSQL via Homebrew: `brew services start postgresql@16`
 - **Open issue:** Grafana SSH tunnel won't load in the browser even though Grafana returns 200 — to revisit
 - Destroyed infra at end of session
 
+### Session 4
+- Rebuilt infra (`terraform apply` + `site.yml`) — app + monitoring came up clean
+- Monitoring healthy on first try: 6 targets up, 2 expected down (no manual Prometheus restart needed)
+- Found the nginx role was still the old single-VM DR version (no Blue/Green, no switch script)
+- Upgraded the nginx role for Blue/Green:
+  - Rewrote `upstream.conf.j2` with blue + green upstreams (blue active by default)
+  - Added `switch-backend.sh.j2` — the traffic-switch script
+  - Removed UFW from the nginx role; added a task to deploy the switch script to `/opt`
+- **Tested Blue/Green end-to-end:** switched BLUE → GREEN → BLUE, app healthy on both, zero downtime ✅
+- Committed the nginx Blue/Green work
+
 ---
 
 ## TODO / Next steps
@@ -267,9 +299,10 @@ Local PostgreSQL via Homebrew: `brew services start postgresql@16`
 - [x] Run `site.yml` and deploy app to BLUE + GREEN
 - [x] Verify app works end-to-end (open edge IP in browser, log in)
 - [x] Enable monitoring role in `site.yml` — Prometheus + Grafana + Loki
+- [x] Test Blue/Green switch script manually (`sudo /opt/switch-backend.sh green`)
+- [ ] Set up S3 DB backups from postgres VM (also enables data to survive destroy)
+- [ ] Build GitHub Actions pipeline: dev → PR tests → staging → manual test → prod (manager approval) → S3 backup → deploy idle VM → switch traffic → monitor 10 min → rollback on failure
 - [ ] **Fix Grafana SSH tunnel access from the browser** (Grafana returns 200 on the VM, but the local tunnel won't render — try fresh terminal, 127.0.0.1, clear stuck port)
 - [ ] Add Prometheus as a Grafana data source + import a node-exporter dashboard
-- [ ] Test Blue/Green switch script manually (`sudo /opt/switch-backend.sh green`)
-- [ ] Build GitHub Actions pipeline: dev → PR tests → staging → manual test → prod (manager approval) → S3 backup → deploy idle VM → switch traffic → monitor 10 min → rollback on failure
-- [ ] Set up S3 DB backups from postgres VM (also enables data to survive destroy)
 - [ ] Clean up deprecated `dynamodb_table` (use `use_lockfile` instead)
+- [ ] Portfolio polish: architecture diagram + top-level project README

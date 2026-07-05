@@ -1,11 +1,14 @@
 # upstream.conf.j2
-# AWS DR environment - single prod VM, no Blue/Green
-# Traffic goes directly to prod VM on internal private IP
+# Managed by Ansible - do not edit by hand
+# Blue/Green upstreams - switch-backend.sh toggles between them
+# Default: BLUE is active
 
 upstream app_frontend {
-    server {{ blue_app_ip }}:3000;
+    server {{ blue_app_ip }}:3000;      # BLUE frontend - ACTIVE
+    # server {{ green_app_ip }}:3000;   # GREEN frontend - INACTIVE
 }
 
 upstream app_backend_api {
-    server {{ blue_app_ip }}:4000;
+    server {{ blue_app_ip }}:4000;      # BLUE backend - ACTIVE
+    # server {{ green_app_ip }}:4000;   # GREEN backend - INACTIVE
 }
