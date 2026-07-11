@@ -371,6 +371,33 @@ Local PostgreSQL via Homebrew: `brew services start postgresql@16`
 - Committed the S3 backup work
 - Added a Troubleshooting section to this README
 
+
+### Session 6 — Stage 1 CI (GitHub Actions)
+- Wrote `.github/workflows/pipeline-1-ci.yml`: three **parallel** jobs — Lint (frontend, `eslint .`), Backend tests, Frontend tests
+  - Trigger: pull request to `main`/`staging`; Node 20; `npm ci`; `defaults.run.working-directory` sets the folder once per job
+  - Backend tests need no DB — Prisma is **mocked** in the tests (9 backend + 6 frontend all green locally)
+- **Architectural decision:** found three old pipeline files (`pipeline-1/2/3`) built for a *different* cloud-native stack (ALB + ASG + ECR + RDS + CloudWatch) — incompatible with the current EC2 + nginx + Ansible + GHCR setup. Confirmed via Terraform outputs (none of `alb_listener_arn`, `ecr_*`, `rds_endpoint`, `*_asg_name` exist here)
+  - Kept the current architecture (stays matched with the Proxmox mirror). Archived `pipeline-2-staging.yml` + `pipeline-3-deploy.yml` to `.github/old-workflow/` as reference (GitHub only runs YAML under `.github/workflows/`)
+- First PR (`cleanup/remove-duplicate-jwt-test`): removed a duplicate `frontend/jwt.test.ts` (verified identical with `diff` first)
+  - Recovered a commit made on the wrong branch using `git switch -c` + `git branch -f` — branches are movable labels
+- **Caught a real lint failure:** Next.js 16 removed `next lint` → changed the frontend lint script from `next lint` to `eslint .`. Silence from ESLint = success
+- **Branch protection Ruleset on `main`:** require a PR + 3 required status checks (Lint, Backend tests, Frontend tests), enforcement Active
+  - **Verified by a rejected direct push** — "Changes must be made through a pull request / 3 of 3 required status checks are expected" ✅
+
+
+  ### Session 7 — Stage 2 Build & Push (GHCR)
+- Wrote `.github/workflows/pipeline-2-build.yml`: build + push frontend & backend images to GHCR
+  - Trigger: push to `main` **or** manual `workflow_dispatch` (safe way to test without merging junk)
+  - Tags each image twice: `v1.0-sha-<short-commit>` (traceable) + `latest` (moving pointer)
+  - Auth via the auto-provided `GITHUB_TOKEN` + `permissions: packages: write` — **no stored PAT in CI**
+  - Builds `linux/amd64` (EC2 is x86)
+- **Frontend API URL decision:** built with `NEXT_PUBLIC_API_URL=` (empty) → app calls **relative `/api`** paths, routed by the edge nginx. Deliberately did NOT bake the Elastic IP, so the image is environment-agnostic and reusable on the Proxmox mirror
+  - Confirmed the code supports it: `process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000"` + `fetch(\`${API_URL}/api/...\`)` → empty string yields `/api/...`
+  - (Deploy-time TODO for Stage 3: edge nginx needs a `location /api/` block forwarding to the app upstream)
+- **Debugged first-push 403 Forbidden:** the image *built* fine; only the *push* was denied (403 = authenticated but not authorised)
+  - Repo Actions permission was read-only → switched to **Read and write**; still 403
+  - Real cause: the GHCR package didn't exist yet, so the repo token had nothing to own. Seeded both packages once — fresh classic PAT with `write:packages` → `docker login ghcr.io` → built + pushed with a throwaway `:seed` tag → then linked each package to the repo (Package settings → **Manage Actions access** → add `SilverBank-AWS` with **Write**)
+- **Re-ran the workflow → green.** Both images live in GHCR: `v1.0-sha-1832e43` + `latest` ✅
 ---
 
 ## TODO / Next steps
@@ -381,6 +408,9 @@ Local PostgreSQL via Homebrew: `brew services start postgresql@16`
 - [x] Test Blue/Green switch script manually (`sudo /opt/switch-backend.sh green`)
 - [x] Set up S3 DB backups from postgres VM (data survives destroy)
 - [ ] Build GitHub Actions pipeline: dev → PR tests → staging → manual test → prod (manager approval) → S3 backup → deploy idle VM → switch traffic → monitor 10 min → rollback on failure
+       - [x] **Stage 1 — CI:** lint + backend/frontend tests on every PR, enforced by branch protection
+       - [x] **Stage 2 — Build:** push to `main` builds + pushes versioned images to GHCR
+       - [ ] **Stage 3 — Deploy:** pull images to idle blue/green VM (Ansible), nginx traffic switch, monitor + rollback
 - [ ] Fix Grafana SSH tunnel access from the browser (Grafana returns 200 on the VM; local tunnel won't render)
 - [ ] Add Prometheus as a Grafana data source + import a node-exporter dashboard
 - [ ] Clean up deprecated `dynamodb_table` (use `use_lockfile` instead)
