@@ -23,7 +23,7 @@ jobs:
           terraform_wrapper: false
 
       - name: Read outputs from S3 state
-        working-directory: terraform
+        working-directory: aws-silverbank/terraform
         run: |
           echo "Initialising Terraform (reads state from S3)..."
           terraform init -reconfigure
