@@ -81,3 +81,26 @@ resource "aws_iam_instance_profile" "db_backup" {
   name = "silverbank-db-backup-profile"
   role = aws_iam_role.db_backup.name
 }
+
+
+# ============================================================
+# EDGE SSM ROLE
+# Lets the edge VM register with AWS Systems Manager (SSM)
+# so GitHub Actions can run deploy commands on it WITHOUT SSH.
+# Reuses the ec2_assume trust policy above.
+# ============================================================
+resource "aws_iam_role" "edge_ssm" {
+  name               = "silverbank-edge-ssm-role"
+  assume_role_policy = data.aws_iam_policy_document.ec2_assume.json
+  tags = { Name = "silverbank-edge-ssm-role" }
+}
+
+resource "aws_iam_role_policy_attachment" "edge_ssm_core" {
+  role       = aws_iam_role.edge_ssm.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_instance_profile" "edge_ssm" {
+  name = "silverbank-edge-ssm-profile"
+  role = aws_iam_role.edge_ssm.name
+}

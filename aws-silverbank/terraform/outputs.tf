@@ -125,3 +125,7 @@ resource "local_file" "group_vars_prod" {
     db_password: "{{ vault_db_password }}"
   YAML
 }
+output "edge_sg_id" {
+  description = "Security group ID of the edge/bastion (for JIT SSH access in CI)"
+  value       = aws_security_group.edge.id
+}
