@@ -1,6 +1,0 @@
----
-- name: Test postgres role on db only
-  hosts: db
-  become: true
-  roles:
-    - postgres
