@@ -89,18 +89,70 @@ resource "aws_iam_instance_profile" "db_backup" {
 # so GitHub Actions can run deploy commands on it WITHOUT SSH.
 # Reuses the ec2_assume trust policy above.
 # ============================================================
-resource "aws_iam_role" "edge_ssm" {
-  name               = "silverbank-edge-ssm-role"
+resource "aws_iam_role" "ssm" {
+  name               = "silverbank-ssm-role"
   assume_role_policy = data.aws_iam_policy_document.ec2_assume.json
-  tags = { Name = "silverbank-edge-ssm-role" }
+  tags = { Name = "silverbank-ssm-role" }
 }
 
-resource "aws_iam_role_policy_attachment" "edge_ssm_core" {
-  role       = aws_iam_role.edge_ssm.name
+resource "aws_iam_role_policy_attachment" "ssm_core" {
+  role       = aws_iam_role.ssm.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-resource "aws_iam_instance_profile" "edge_ssm" {
-  name = "silverbank-edge-ssm-profile"
-  role = aws_iam_role.edge_ssm.name
+resource "aws_iam_instance_profile" "ssm" {
+  name = "silverbank-ssm-profile"
+  role = aws_iam_role.ssm.name
+}
+
+# ------------------------------------------------------------
+# Attach SSM to the DB role too (db keeps its S3 backup role,
+# gains SSM so the runner can deploy to it — one profile per instance)
+# ------------------------------------------------------------
+resource "aws_iam_role_policy_attachment" "db_backup_ssm" {
+  role       = aws_iam_role.db_backup.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+# ============================================================
+# SSM FILE-TRANSFER S3 ACCESS
+# Ansible's aws_ssm connection uses an S3 bucket to shuttle
+# files to instances. Grant read/write ONLY under ssm-transfer/.
+# Attached to both SSM-enabled roles (ssm + db_backup).
+# ============================================================
+data "aws_iam_policy_document" "ssm_transfer_s3" {
+  statement {
+    actions = [
+      "s3:PutObject",
+      "s3:GetObject",
+      "s3:DeleteObject",
+    ]
+    resources = [
+      "arn:aws:s3:::silverbank-tfstate-mariusiordan/ssm-transfer/*"
+    ]
+  }
+  statement {
+    actions   = ["s3:ListBucket"]
+    resources = ["arn:aws:s3:::silverbank-tfstate-mariusiordan"]
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values   = ["ssm-transfer/*"]
+    }
+  }
+}
+
+resource "aws_iam_policy" "ssm_transfer_s3" {
+  name   = "silverbank-ssm-transfer-s3"
+  policy = data.aws_iam_policy_document.ssm_transfer_s3.json
+}
+
+resource "aws_iam_role_policy_attachment" "ssm_transfer_app" {
+  role       = aws_iam_role.ssm.name
+  policy_arn = aws_iam_policy.ssm_transfer_s3.arn
+}
+
+resource "aws_iam_role_policy_attachment" "ssm_transfer_db" {
+  role       = aws_iam_role.db_backup.name
+  policy_arn = aws_iam_policy.ssm_transfer_s3.arn
 }

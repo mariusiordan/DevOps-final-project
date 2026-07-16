@@ -3,6 +3,7 @@
 Two implementations of a production-grade CI/CD platform for the SilverBank
 3-tier banking application (Next.js + Express/Prisma + PostgreSQL), built with
 Terraform, Ansible, Docker, and GitHub Actions.
+> 📖 Each project folder contains its own detailed documentation — open the folder to read it.
 
 ## Projects
 
