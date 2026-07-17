@@ -32,7 +32,6 @@
         group: "{{ docker_user }}"
 
     - name: Login to GitHub Container Registry
-      become_user: "{{ docker_user }}"
       command: >
         docker login ghcr.io
         -u mariusiordan
@@ -41,18 +40,15 @@
         stdin: "{{ vault_ghcr_token }}"
 
     - name: Clean up unused Docker images
-      become_user: "{{ docker_user }}"
       command: docker system prune -f
       ignore_errors: true
 
     - name: Pull latest images
-      become_user: "{{ docker_user }}"
       command:
         cmd: docker compose pull
         chdir: "{{ app_dir }}"
 
     - name: Restart containers with new images
-      become_user: "{{ docker_user }}"
       command:
         cmd: docker compose up -d --remove-orphans
         chdir: "{{ app_dir }}"
