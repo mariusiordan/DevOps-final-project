@@ -128,17 +128,12 @@ data "aws_iam_policy_document" "ssm_transfer_s3" {
       "s3:DeleteObject",
     ]
     resources = [
-      "arn:aws:s3:::silverbank-tfstate-mariusiordan/ssm-transfer/*"
+      "arn:aws:s3:::silverbank-ssm-transfer-mariusiordan/*"
     ]
   }
   statement {
     actions   = ["s3:ListBucket"]
-    resources = ["arn:aws:s3:::silverbank-tfstate-mariusiordan"]
-    condition {
-      test     = "StringLike"
-      variable = "s3:prefix"
-      values   = ["ssm-transfer/*"]
-    }
+    resources = ["arn:aws:s3:::silverbank-ssm-transfer-mariusiordan"]
   }
 }
 

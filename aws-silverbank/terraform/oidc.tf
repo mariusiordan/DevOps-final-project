@@ -97,38 +97,22 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     resources = ["*"]
   }
 
-  # File transfer bucket used by the Ansible aws_ssm connection plugin
+  # Dedicated transfer bucket for the Ansible aws_ssm plugin.
+  # The plugin writes to <bucket>/<instance-id>/..., so access is
+  # granted on the whole bucket - which holds only transient files.
   statement {
     sid = "SsmFileTransfer"
     actions = [
       "s3:PutObject",
       "s3:GetObject",
       "s3:DeleteObject",
-    ]
-    resources = ["arn:aws:s3:::silverbank-tfstate-mariusiordan/ssm-transfer/*"]
-  }
-
-  # Bucket-level metadata: the aws_ssm plugin calls HeadBucket to
-  # resolve the bucket region before transferring files. Bucket-level
-  # calls carry no prefix, so they cannot be scoped with s3:prefix.
-  statement {
-    sid = "SsmBucketMetadata"
-    actions = [
       "s3:ListBucket",
       "s3:GetBucketLocation",
     ]
-    resources = ["arn:aws:s3:::silverbank-tfstate-mariusiordan"]
-  }
-
-  statement {
-    sid       = "SsmFileTransferList"
-    actions   = ["s3:ListBucket"]
-    resources = ["arn:aws:s3:::silverbank-tfstate-mariusiordan"]
-    condition {
-      test     = "StringLike"
-      variable = "s3:prefix"
-      values   = ["ssm-transfer/*"]
-    }
+    resources = [
+      "arn:aws:s3:::silverbank-ssm-transfer-mariusiordan",
+      "arn:aws:s3:::silverbank-ssm-transfer-mariusiordan/*",
+    ]
   }
 }
 
