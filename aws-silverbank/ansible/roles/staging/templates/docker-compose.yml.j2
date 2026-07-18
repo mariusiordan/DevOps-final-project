@@ -1,0 +1,58 @@
+# roles/staging/templates/docker-compose.yml.j2
+# Full isolated 3-tier stack for integration testing
+# Managed by Ansible - do not edit by hand
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: staging-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     {{ db_user }}
+      POSTGRES_PASSWORD: {{ db_password }}
+      POSTGRES_DB:       {{ staging_db_name }}
+    volumes:
+      - {{ staging_db_data_dir }}:/var/lib/postgresql/data
+    ports:
+      - "{{ staging_db_port }}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U {{ db_user }} -d {{ staging_db_name }}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    image: {{ backend_image }}:{{ staging_tag }}
+    container_name: staging-backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - PORT=4000
+    ports:
+      - "{{ staging_port_backend }}:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/api/health"\]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    image: {{ frontend_image }}:{{ staging_tag }}
+    container_name: staging-frontend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - PORT=3000
+    ports:
+      - "{{ staging_port_frontend }}:3000"
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"\]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

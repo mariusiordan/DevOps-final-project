@@ -1,0 +1,13 @@
+---
+# playbooks/deploy-staging.yml
+# Deploys the full 3-tier stack to the staging VM for integration testing
+#
+# Usage:
+#   ansible-playbook playbooks/deploy-staging.yml -i inventory-ssm.ini
+#   ansible-playbook playbooks/deploy-staging.yml -i inventory-ssm.ini -e "staging_tag=v1.0-sha-abc123"
+
+- name: Deploy staging environment
+  hosts: monitoring
+  become: true
+  roles:
+    - staging

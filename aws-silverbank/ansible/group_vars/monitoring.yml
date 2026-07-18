@@ -1,0 +1,18 @@
+# group_vars/monitoring.yml
+# Variables for the monitoring-staging VM
+# Staging runs a FULL isolated 3-tier stack: frontend + backend + its own PostgreSQL
+# It never touches the production database.
+
+staging_dir: /opt/staging
+
+# Staging database - local container, isolated from production
+staging_db_name: stagingdb
+staging_db_port: 5433          # host port (5432 is used inside the container network)
+staging_db_data_dir: /opt/staging/pgdata
+
+# App ports on staging (3001 is taken by Grafana)
+staging_port_frontend: 3000
+staging_port_backend:  4000
+
+# Image tag deployed to staging
+staging_tag: "staging"

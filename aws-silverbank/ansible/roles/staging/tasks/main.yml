@@ -1,0 +1,57 @@
+---
+# roles/staging/tasks/main.yml
+# Deploys a full isolated 3-tier stack on the monitoring-staging VM
+# Runs as root (no become_user) so it works over both SSH and SSM
+
+- name: Create staging directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ staging_dir }}"
+    - "{{ staging_db_data_dir }}"
+
+- name: Deploy staging docker-compose file
+  template:
+    src: docker-compose.yml.j2
+    dest: "{{ staging_dir }}/docker-compose.yml"
+    mode: "0644"
+
+- name: Deploy staging .env file
+  template:
+    src: .env.j2
+    dest: "{{ staging_dir }}/.env"
+    mode: "0600"
+
+- name: Login to GitHub Container Registry
+  command: >
+    docker login ghcr.io
+    -u mariusiordan
+    --password-stdin
+  args:
+    stdin: "{{ vault_ghcr_token }}"
+
+- name: Stop existing staging containers
+  command:
+    cmd: docker compose down --remove-orphans
+    chdir: "{{ staging_dir }}"
+  ignore_errors: true
+
+- name: Start staging stack
+  command:
+    cmd: docker compose up -d --pull always --remove-orphans
+    chdir: "{{ staging_dir }}"
+
+- name: Wait for staging backend to be healthy
+  uri:
+    url: "http://localhost:{{ staging_port_backend }}/api/health"
+    status_code: 200
+  register: health
+  until: health.status == 200
+  retries: 20
+  delay: 10
+
+- name: Confirm staging deployment
+  debug:
+    msg: "✅ Staging stack running - backend healthy on port {{ staging_port_backend }}"
