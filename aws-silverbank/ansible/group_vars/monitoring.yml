@@ -16,3 +16,11 @@ staging_port_backend:  4000
 
 # Image tag deployed to staging
 staging_tag: "staging"
+
+# Database credentials for the local staging postgres (from vault)
+db_user:     "{{ vault_db_user }}"
+db_password: "{{ vault_db_password }}"
+
+# Images to deploy on staging
+frontend_image: "ghcr.io/mariusiordan/silverbank-frontend"
+backend_image:  "ghcr.io/mariusiordan/silverbank-backend"
