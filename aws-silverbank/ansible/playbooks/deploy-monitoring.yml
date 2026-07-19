@@ -1,0 +1,16 @@
+---
+# playbooks/deploy-monitoring.yml
+# Deploys the Prometheus + Grafana + Loki stack, including Grafana
+# provisioning (datasources and dashboards defined as code).
+#
+# Separate from site.yml so it can run over SSM without the common
+# role, which resets the connection - an SSH-specific operation.
+#
+# Usage:
+#   ansible-playbook playbooks/deploy-monitoring.yml -i inventory-ssm.ini
+
+- name: Deploy monitoring stack
+  hosts: monitoring
+  become: true
+  roles:
+    - monitoring

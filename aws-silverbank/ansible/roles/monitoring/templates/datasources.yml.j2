@@ -1,0 +1,20 @@
+# monitoring/provisioning/datasources/datasources.yml
+# Managed by Ansible - do not edit by hand
+# Grafana reads this at startup and configures its data sources,
+# so the stack is usable immediately after a rebuild - no manual UI setup.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    # Container name on the compose network, not an IP
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false

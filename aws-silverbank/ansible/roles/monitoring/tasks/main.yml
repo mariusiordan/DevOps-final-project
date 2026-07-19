@@ -14,6 +14,8 @@
   loop:
     - /opt/monitoring
     - /opt/monitoring/prometheus
+    - /opt/monitoring/grafana/provisioning/datasources
+    - /opt/monitoring/grafana/provisioning/dashboards
 
 - name: Deploy prometheus config
   template:
@@ -22,6 +24,36 @@
     owner: "{{ docker_user }}"
     group: "{{ docker_user }}"
     mode: "0644"
+
+- name: Deploy Grafana datasource provisioning
+  template:
+    src: datasources.yml.j2
+    dest: /opt/monitoring/grafana/provisioning/datasources/datasources.yml
+    owner: "{{ docker_user }}"
+    group: "{{ docker_user }}"
+    mode: "0644"
+
+- name: Deploy Grafana dashboard provider
+  template:
+    src: dashboards.yml.j2
+    dest: /opt/monitoring/grafana/provisioning/dashboards/dashboards.yml
+    owner: "{{ docker_user }}"
+    group: "{{ docker_user }}"
+    mode: "0644"
+
+# Node Exporter Full - the standard host metrics dashboard (grafana.com ID 1860)
+- name: Download Node Exporter dashboard
+  get_url:
+    url: https://grafana.com/api/dashboards/1860/revisions/latest/download
+    dest: /opt/monitoring/grafana/provisioning/dashboards/node-exporter-full.json
+    owner: "{{ docker_user }}"
+    group: "{{ docker_user }}"
+    mode: "0644"
+  register: dashboard_download
+  retries: 3
+  delay: 5
+  until: dashboard_download is succeeded
+  ignore_errors: true
 
 - name: Deploy docker-compose for monitoring
   template:
@@ -36,4 +68,3 @@
     project_src: /opt/monitoring
     state: present
   become: yes
-  become_user: "{{ docker_user }}"
